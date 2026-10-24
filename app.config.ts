@@ -8,6 +8,9 @@ const config: ExpoConfig = {
   orientation: 'portrait',
   userInterfaceStyle: 'light',
   icon: './src/assets/brand/icon-1024.png',
+  updates: {
+    enabled: false,
+  },
   ios: {
     bundleIdentifier: 'au.fairybread.app',
     supportsTablet: true,
@@ -36,8 +39,7 @@ const config: ExpoConfig = {
     // Phase A: no Firebase plugin yet
   ],
   extra: { 
-    eas: { projectId: '<filled by `eas init`>' },
-    // newArchEnabled is set in Hermes engine config in SDK 58+
+    // eas: { projectId: 'xxx' },  // not needed for local Expo Go development
   },
 } as any;
 
