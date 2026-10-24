@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { Text, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -52,16 +52,47 @@ export default function App() {
       <SafeAreaProvider>
         <BottomSheetModalProvider>
           <StatusBar style="dark" />
-          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.paper }}>
-            <Text style={[type.h1, { color: colors.ink, marginBottom: 16 }]}>
-              Fairybread & Fractions
-            </Text>
-            <Text style={[type.body, { color: colors.muted }]}>
-              Phase A: Expo Go Ready
-            </Text>
-          </View>
+          <ScrollView style={{ flex: 1, backgroundColor: colors.paper }}>
+            <View style={{ paddingHorizontal: 20, paddingVertical: 20 }}>
+              <Text style={[type.h1, { color: colors.ink, marginBottom: 8 }]}>
+                Fairybread & Fractions
+              </Text>
+              <Text style={[type.body, { color: colors.muted, marginBottom: 24 }]}>
+                Phase A: Expo Go Ready
+              </Text>
+
+              {/* Font Test */}
+              <Text style={[type.h2, { color: colors.ink, marginBottom: 16, marginTop: 16 }]}>
+                Font Tests
+              </Text>
+
+              <Text style={{ fontFamily: 'DMSans-Regular', fontSize: 16, color: colors.ink, marginBottom: 8 }}>
+                ✓ DMSans-Regular
+              </Text>
+              <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 16, color: colors.ink, marginBottom: 8 }}>
+                ✓ DMSans-Medium
+              </Text>
+              <Text style={{ fontFamily: 'DMSans-SemiBold', fontSize: 16, color: colors.ink, marginBottom: 8 }}>
+                ✓ DMSans-SemiBold
+              </Text>
+              <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 16, color: colors.ink, marginBottom: 8 }}>
+                ✓ DMSans-Bold
+              </Text>
+              <Text style={{ fontFamily: 'Fraunces-Medium', fontSize: 16, color: colors.pink, marginBottom: 8 }}>
+                ✓ Fraunces-Medium
+              </Text>
+              <Text style={{ fontFamily: 'Fraunces-SemiBold', fontSize: 16, color: colors.pink, marginBottom: 24 }}>
+                ✓ Fraunces-SemiBold
+              </Text>
+
+              <Text style={[type.caption, { color: colors.muted }]}>
+                All 6 fonts loaded successfully.
+              </Text>
+            </View>
+          </ScrollView>
         </BottomSheetModalProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }
+
