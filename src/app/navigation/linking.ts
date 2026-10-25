@@ -49,7 +49,7 @@ export const linking: LinkingOptions<RootStackParamList> = {
           Messages: 'teacher/messages',
           TeacherMore: {
             screens: {
-              MoreHub: 'teacher/more',
+              TeacherMoreHub: 'teacher/more',
               MyClasses: 'teacher/classes',
               Assessments: 'teacher/assessments',
               Reports: 'teacher/reports',
@@ -64,8 +64,8 @@ export const linking: LinkingOptions<RootStackParamList> = {
         screens: {
           AdminHome: 'admin',
           AdminBookings: 'admin/bookings',
-          Payments: 'admin/payments',
-          Messages: 'admin/messages',
+          AdminPayments: 'admin/payments',
+          AdminMessages: 'admin/messages',
           AdminMore: {
             screens: {
               MoreHub: 'admin/more',

@@ -63,9 +63,14 @@ export type TeacherMoreStackParamList = {
 export type AdminTabParamList = {
   AdminHome: undefined;
   AdminBookings: undefined;
-  Payments: undefined;
-  Messages: undefined;
+  AdminPayments: undefined;
+  AdminMessages: NavigatorScreenParams<AdminMessagesStackParamList>;
   AdminMore: NavigatorScreenParams<AdminMoreStackParamList>;
+};
+
+export type AdminMessagesStackParamList = {
+  MessageList: undefined;
+  ChatDetail: { conversationId: string; otherPartyName: string };
 };
 
 export type AdminMoreStackParamList = {
@@ -125,6 +130,11 @@ export type TeacherMoreStackProps<T extends keyof TeacherMoreStackParamList> = N
 
 export type AdminTabProps<T extends keyof AdminTabParamList> = BottomTabScreenProps<
   AdminTabParamList,
+  T
+>;
+
+export type AdminMessagesStackProps<T extends keyof AdminMessagesStackParamList> = NativeStackScreenProps<
+  AdminMessagesStackParamList,
   T
 >;
 

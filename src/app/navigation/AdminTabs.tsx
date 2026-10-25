@@ -1,18 +1,14 @@
 import React from 'react';
 import { StyleSheet } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import {
-  LayoutDashboard,
-  Ticket,
-  CreditCard,
-  MessageCircle,
-  Menu,
-} from 'lucide-react-native';
+import { LayoutDashboard, Ticket, CreditCard, MessageCircle, Menu } from 'lucide-react-native';
 import { colors, space, type } from '@/theme';
 import type { AdminTabParamList } from './types';
-import { PlaceholderScreen } from '@/components/ui/PlaceholderScreen';
-import { AdminMoreStack } from './AdminMore';
 import { AdminHomeScreen } from '@/features/admin/screens/AdminHomeScreen';
+import { AdminBookingsPage } from '@/features/admin/screens/AdminBookingsPage';
+import { AdminPaymentsPage } from '@/features/admin/screens/AdminPaymentsPage';
+import { AdminMessagesStack } from './AdminMessages';
+import { AdminMoreStack } from './AdminMore';
 
 const Tab = createBottomTabNavigator<AdminTabParamList>();
 
@@ -33,39 +29,31 @@ export function AdminTabs() {
         component={AdminHomeScreen}
         options={{
           title: 'Home',
-          tabBarIcon: ({ color, size }) => (
-            <LayoutDashboard size={size} color={color} />
-          ),
+          tabBarIcon: ({ color, size }) => <LayoutDashboard size={size} color={color} />,
         }}
       />
       <Tab.Screen
         name="AdminBookings"
-        component={() => <PlaceholderScreen title="Bookings" icon="🎫" />}
+        component={AdminBookingsPage}
         options={{
           title: 'Bookings',
-          tabBarIcon: ({ color, size }) => (
-            <Ticket size={size} color={color} />
-          ),
+          tabBarIcon: ({ color, size }) => <Ticket size={size} color={color} />,
         }}
       />
       <Tab.Screen
-        name="Payments"
-        component={() => <PlaceholderScreen title="Payments" icon="💰" />}
+        name="AdminPayments"
+        component={AdminPaymentsPage}
         options={{
           title: 'Payments',
-          tabBarIcon: ({ color, size }) => (
-            <CreditCard size={size} color={color} />
-          ),
+          tabBarIcon: ({ color, size }) => <CreditCard size={size} color={color} />,
         }}
       />
       <Tab.Screen
-        name="Messages"
-        component={() => <PlaceholderScreen title="Messages" icon="💬" />}
+        name="AdminMessages"
+        component={AdminMessagesStack}
         options={{
           title: 'Messages',
-          tabBarIcon: ({ color, size }) => (
-            <MessageCircle size={size} color={color} />
-          ),
+          tabBarIcon: ({ color, size }) => <MessageCircle size={size} color={color} />,
         }}
       />
       <Tab.Screen
@@ -73,9 +61,7 @@ export function AdminTabs() {
         component={AdminMoreStack}
         options={{
           title: 'More',
-          tabBarIcon: ({ color, size }) => (
-            <Menu size={size} color={color} />
-          ),
+          tabBarIcon: ({ color, size }) => <Menu size={size} color={color} />,
         }}
       />
     </Tab.Navigator>
@@ -85,17 +71,18 @@ export function AdminTabs() {
 const styles = StyleSheet.create({
   tabBar: {
     backgroundColor: colors.card,
-    borderTopColor: colors.line,
     borderTopWidth: 1,
-    height: 60 + space.md,
-    paddingBottom: space.md,
+    borderTopColor: colors.line,
+    height: 60,
+    paddingBottom: 0,
   },
   tabBarLabel: {
-    ...type.caption,
-    color: colors.muted,
-    marginTop: 4,
+    fontSize: 11,
+    fontFamily: 'DMSans-Medium',
+    marginTop: space.xs,
+    marginBottom: space.xs,
   },
   tabBarIcon: {
-    marginBottom: 4,
+    marginTop: space.xs,
   },
 });
