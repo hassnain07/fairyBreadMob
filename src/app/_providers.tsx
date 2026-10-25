@@ -9,6 +9,8 @@ export interface AuthCtx {
   role: 'parent' | 'teacher' | 'admin' | null;
   familyId: string | null;
   teacherId: string | null;
+  inAuthFlow: boolean;
+  setInAuthFlow: (value: boolean) => void;
   signIn: (email: string, password: string) => Promise<AuthUser>;
   signOut: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -36,6 +38,7 @@ export const queryClient = createQueryClient();
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [inAuthFlow, setInAuthFlow] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -54,6 +57,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const off = dataClient.onAuthChange((event) => {
       if (event === 'SIGNED_OUT') {
         setUser(null);
+        setInAuthFlow(false);
         queryClient.clear();
         return;
       }
@@ -72,19 +76,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       role: user?.role ?? null,
       familyId: user?.familyId ?? null,
       teacherId: user?.teacherId ?? null,
+      inAuthFlow,
+      setInAuthFlow,
       signIn: async (email, password) => {
         const u = await dataClient.signIn(email, password);
         setUser(u);
         return u;
       },
       signOut: async () => {
+        setInAuthFlow(false);
         await dataClient.signOut();
         setUser(null);
         queryClient.clear();
       },
       refresh,
     }),
-    [user, loading, refresh]
+    [user, loading, inAuthFlow, refresh]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

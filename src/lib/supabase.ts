@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import { secureStorage } from './secureStorage';
 
 // Placeholder for Database types — will be generated from supabase
@@ -8,14 +8,23 @@ type Database = any;
 export type AppSupabase = SupabaseClient<Database>;
 
 export function createAppSupabase(url: string, anonKey: string, opts?: { storage?: unknown; detectSessionInUrl?: boolean }): AppSupabase {
-  return createClient<Database>(url, anonKey, {
+  const client = createClient<Database>(url, anonKey, {
     auth: {
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: opts?.detectSessionInUrl ?? true,
       ...(opts?.storage ? { storage: opts.storage as never } : {}),
     },
+    global: {
+      headers: {
+        // Force UTC timezone across all requests to avoid device timezone issues
+        'X-Timezone': 'UTC',
+        'Timezone': 'UTC',
+      },
+    },
   });
+
+  return client;
 }
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
