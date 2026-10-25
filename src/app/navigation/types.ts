@@ -47,11 +47,11 @@ export type TeacherTabParamList = {
   Attendance: undefined;
   Students: undefined;
   Messages: undefined;
-  TeacherMore: NavigatorScreenParams<TeacherMoreStackParamList>;
+  More: NavigatorScreenParams<TeacherMoreStackParamList>;
 };
 
 export type TeacherMoreStackParamList = {
-  MoreHub: undefined;
+  TeacherMoreHub: undefined;
   MyClasses: undefined;
   Assessments: undefined;
   Reports: undefined;
