@@ -1,195 +1,286 @@
-import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, FlatList } from 'react-native';
-import { useQuery } from '@tanstack/react-query';
+import React, { useMemo, useState } from 'react';
+import {
+  View,
+  Text,
+  ScrollView,
+  StyleSheet,
+  TouchableOpacity,
+  RefreshControl,
+} from 'react-native';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  CalendarDays,
+  Check,
+  ClipboardList,
+  Clock3,
+  UserRound,
+} from 'lucide-react-native';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { colors, type, space, radius, shadow } from '@/theme';
 import { useAuth } from '@/app/_providers';
-import { Skeleton } from '@/components/ui/Skeleton';
 import { Button } from '@/components/ui/Button';
+import { Skeleton } from '@/components/ui/Skeleton';
 import { dataClient } from '@/lib/data/client';
+import { qk } from '@/lib/data/queryKeys';
+import type { Assessment } from '@/types/booking';
+import type { ParentMoreStackParamList } from '@/app/navigation/types';
 
-export function AssessmentsPage({ navigation }: any) {
+type Props = NativeStackScreenProps<ParentMoreStackParamList, 'MyAssessments'>;
+
+/* ── helpers ─────────────────────────────────────────────────── */
+const DAYS   = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function toTimeLabel(t: string) {
+  const [h, m] = t.split(':').map(Number);
+  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
+}
+
+const STATUS_LABEL: Record<Assessment['status'], string> = {
+  awaiting_payment: 'Awaiting payment',
+  scheduled:        'Scheduled',
+  completed:        'Completed',
+  cancelled:        'Cancelled',
+};
+
+const STATUS_STYLE: Record<Assessment['status'], { bg: string; fg: string }> = {
+  awaiting_payment: { bg: colors.status.pending.bg,  fg: colors.status.pending.fg  },
+  scheduled:        { bg: colors.status.success.bg,  fg: colors.status.success.fg  },
+  completed:        { bg: colors.status.success.bg,  fg: colors.status.success.fg  },
+  cancelled:        { bg: colors.status.danger.bg,   fg: colors.status.danger.fg   },
+};
+
+/* ── Assessment card ─────────────────────────────────────────── */
+function AssessmentCard({ a }: { a: Assessment & { child?: { name: string } } }) {
+  const isInitial    = !a.payment_id;
+  const accentColor  = isInitial ? colors.pink : colors.teal;
+  const statusStyle  = STATUS_STYLE[a.status];
+  const childName    = (a as any).child?.name ?? '';
+  const teacherName  = (a as any).teacher?.name ?? '';
+
+  return (
+    <View style={[s.assessCard, shadow.card as object]}>
+      {/* Left colour stripe */}
+      <View style={[s.stripe, { backgroundColor: accentColor }]} />
+
+      {/* Date block */}
+      <View style={[s.dateBlock, { backgroundColor: accentColor + '18' }]}>
+        {a.scheduled_date ? (
+          (() => {
+            const d = new Date(a.scheduled_date + 'T00:00:00');
+            return (
+              <>
+                <Text style={[s.dateDay,   { color: accentColor }]}>{DAYS[d.getDay()]}</Text>
+                <Text style={[s.dateNum,   { color: accentColor }]}>{d.getDate()}</Text>
+                <Text style={[s.dateMon,   { color: accentColor }]}>{MONTHS[d.getMonth()]}</Text>
+              </>
+            );
+          })()
+        ) : (
+          <>
+            <Text style={[s.dateDay, { color: colors.mutedSoft, fontSize: 9 }]}>TBC</Text>
+            <Text style={[s.dateNum, { color: colors.mutedSoft }]}>—</Text>
+          </>
+        )}
+      </View>
+
+      {/* Main content */}
+      <View style={s.assessMain}>
+        <Text style={[s.assessEyebrow, { color: accentColor }]}>
+          {isInitial ? 'Initial assessment' : 'Term assessment'}
+        </Text>
+        <Text style={s.assessTitle}>
+          {isInitial ? 'Initial Learning Assessment' : 'Progress check-in'}
+        </Text>
+
+        {a.scheduled_time ? (
+          <View style={s.metaRow}>
+            <Clock3 size={12} color={colors.muted} />
+            <Text style={s.metaText}>{toTimeLabel(a.scheduled_time)}</Text>
+          </View>
+        ) : null}
+
+        {teacherName ? (
+          <View style={s.metaRow}>
+            <UserRound size={12} color={colors.muted} />
+            <Text style={s.metaText}>with {teacherName}</Text>
+          </View>
+        ) : null}
+
+        {childName ? (
+          <View style={s.metaRow}>
+            <ClipboardList size={12} color={colors.muted} />
+            <Text style={s.metaText}>{childName}</Text>
+          </View>
+        ) : null}
+
+        {a.notes ? (
+          <Text style={s.assessNote}>"{a.notes}"</Text>
+        ) : null}
+      </View>
+
+      {/* Status badge */}
+      <View style={[s.statusBadge, { backgroundColor: statusStyle.bg }]}>
+        {a.status === 'scheduled' ? (
+          <Check size={11} color={statusStyle.fg} style={{ marginRight: 3 }} />
+        ) : null}
+        <Text style={[s.statusText, { color: statusStyle.fg }]}>
+          {STATUS_LABEL[a.status]}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+/* ── AssessmentsPage ─────────────────────────────────────────── */
+export function AssessmentsPage({ navigation }: Props) {
   const { familyId } = useAuth();
-  const [refreshing, setRefreshing] = React.useState(false);
+  const queryClient  = useQueryClient();
+  const [refreshing, setRefreshing] = useState(false);
 
-  const { data: assessments = [], isLoading, refetch } = useQuery({
-    queryKey: ['assessments', familyId],
-    queryFn: () => dataClient.getAssessments?.(familyId || '') || Promise.resolve([]),
-    enabled: !!familyId,
+  const { data: assessments = [], isLoading } = useQuery({
+    queryKey: qk.assessments(familyId ?? ''),
+    queryFn:  () => dataClient.getAssessments!(familyId!),
+    enabled:  !!familyId,
   });
+
+  const { upcoming, past } = useMemo(() => {
+    const upcoming = assessments
+      .filter(a => a.status !== 'cancelled' && a.status !== 'completed')
+      .sort((a, b) => {
+        if (!a.scheduled_date) return 1;
+        if (!b.scheduled_date) return -1;
+        return a.scheduled_date.localeCompare(b.scheduled_date);
+      });
+
+    const past = assessments
+      .filter(a => a.status === 'completed' || a.status === 'cancelled')
+      .sort((a, b) => {
+        if (!a.scheduled_date) return 1;
+        if (!b.scheduled_date) return -1;
+        return b.scheduled_date.localeCompare(a.scheduled_date);
+      });
+
+    return { upcoming, past };
+  }, [assessments]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await refetch();
-    setRefreshing(false);
+    try { await queryClient.invalidateQueries({ queryKey: qk.assessments(familyId ?? '') }); }
+    finally { setRefreshing(false); }
   };
-
-  // Group assessments into upcoming and past
-  const { upcoming, past } = useMemo(() => {
-    const now = new Date();
-    const upcoming: any[] = [];
-    const past: any[] = [];
-
-    assessments.forEach((a: any) => {
-      const date = new Date(a.scheduled_date || '');
-      if (date > now && a.status !== 'cancelled') {
-        upcoming.push(a);
-      } else {
-        past.push(a);
-      }
-    });
-
-    return {
-      upcoming: upcoming.sort((a, b) => new Date(a.scheduled_date).getTime() - new Date(b.scheduled_date).getTime()),
-      past: past.sort((a, b) => new Date(b.scheduled_date).getTime() - new Date(a.scheduled_date).getTime()),
-    };
-  }, [assessments]);
-
-  const renderAssessmentCard = (assessment: any) => {
-    const isInitial = !assessment.session_id;
-    const dateStr = assessment.scheduled_date 
-      ? new Date(assessment.scheduled_date).toLocaleDateString('en-AU', { weekday: 'short', day: '2-digit', month: 'short' })
-      : 'TBC';
-    
-    const statusMap: Record<string, { bg: string; fg: string }> = {
-      scheduled: colors.status.pending,
-      completed: colors.status.success,
-      cancelled: colors.status.danger,
-    };
-    const status = statusMap[assessment.status] || colors.status.info;
-
-    return (
-      <View key={assessment.id} style={[styles.card, shadow.card as object]}>
-        <View style={styles.cardContent}>
-          <View style={[styles.dateBlock, { backgroundColor: isInitial ? colors.pink : colors.teal }]}>
-            <Text style={[type.eyebrow, { color: '#fff', textAlign: 'center' }]}>
-              {dateStr.split(' ')[0]}
-            </Text>
-            <Text style={[type.h3, { color: '#fff', textAlign: 'center' }]}>
-              {dateStr.split(' ')[1]}
-            </Text>
-          </View>
-
-          <View style={{ flex: 1, marginLeft: space.lg }}>
-            <Text style={[type.caption, { color: colors.muted, textTransform: 'uppercase' }]}>
-              {isInitial ? 'Initial Assessment' : 'Term Assessment'}
-            </Text>
-            <Text style={[type.h3, { color: colors.ink, marginTop: space.xs }]}>
-              {assessment.child_name}
-            </Text>
-            {assessment.scheduled_time && (
-              <Text style={[type.small, { color: colors.muted, marginTop: space.xs }]}>
-                {assessment.scheduled_time}
-              </Text>
-            )}
-            {assessment.tutor_name && (
-              <Text style={[type.small, { color: colors.muted }]}>
-                with {assessment.tutor_name}
-              </Text>
-            )}
-          </View>
-
-          <View style={[styles.statusPill, { backgroundColor: status.bg }]}>
-            <Text style={[type.pill, { color: status.fg }]}>
-              {assessment.status.charAt(0).toUpperCase() + assessment.status.slice(1)}
-            </Text>
-          </View>
-        </View>
-      </View>
-    );
-  };
-
-  const isEmpty = upcoming.length === 0 && past.length === 0;
 
   return (
     <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.contentPadding}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+      style={s.container}
+      contentContainerStyle={s.content}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.pink} />}
     >
-      <Text style={[type.h1, { color: colors.ink, marginBottom: space.sm }]}>
-        My Assessments
-      </Text>
-      <Text style={[type.body, { color: colors.muted, marginBottom: space.lg }]}>
-        Track upcoming and past assessments for your children.
-      </Text>
-
-      {isLoading ? (
-        <View style={{ gap: space.lg }}>
-          <Skeleton height={100} borderRadius={radius.card} />
-          <Skeleton height={100} borderRadius={radius.card} />
+      {/* ── Header ── */}
+      <View style={s.toolbar}>
+        <View style={s.toolbarText}>
+          <Text style={s.pageTitle}>Your assessments</Text>
+          <Text style={s.pageSub}>Track upcoming and past assessments for your children.</Text>
         </View>
-      ) : isEmpty ? (
-        <View style={styles.emptyBox}>
-          <Text style={[type.body, { color: colors.muted, textAlign: 'center', marginBottom: space.lg }]}>
+        <Button
+          label="Book"
+          icon={CalendarDays}
+          onPress={() => navigation.navigate('BookAssessment')}
+          style={{ flexShrink: 0 }}
+        />
+      </View>
+
+      {/* ── Loading ── */}
+      {isLoading && (
+        <View style={{ gap: 12 }}>
+          <Skeleton height={100} borderRadius={14} />
+          <Skeleton height={100} borderRadius={14} />
+        </View>
+      )}
+
+      {/* ── Empty ── */}
+      {!isLoading && assessments.length === 0 && (
+        <View style={[s.emptyCard, shadow.card as object]}>
+          <Text style={s.emptyText}>
             No assessments yet. Book an initial assessment to get started.
           </Text>
-          <Button label="Book assessment →" onPress={() => navigation.navigate('BookAssessment')} />
+          <Button
+            label="Book an assessment"
+            icon={CalendarDays}
+            onPress={() => navigation.navigate('BookAssessment')}
+            style={{ marginTop: 14 }}
+          />
         </View>
-      ) : (
-        <>
-          {upcoming.length > 0 && (
-            <View style={{ marginBottom: space.xl }}>
-              <Text style={[type.h3, { color: colors.ink, marginBottom: space.lg }]}>
-                Upcoming
-              </Text>
-              <View style={{ gap: space.md }}>
-                {upcoming.map(renderAssessmentCard)}
-              </View>
-            </View>
-          )}
+      )}
 
-          {past.length > 0 && (
-            <View>
-              <Text style={[type.h3, { color: colors.ink, marginBottom: space.lg }]}>
-                Past
-              </Text>
-              <View style={{ gap: space.md }}>
-                {past.map(renderAssessmentCard)}
-              </View>
-            </View>
-          )}
-        </>
+      {/* ── Upcoming ── */}
+      {upcoming.length > 0 && (
+        <View style={s.section}>
+          <Text style={s.sectionLabel}>Upcoming</Text>
+          {upcoming.map(a => <AssessmentCard key={a.id} a={a as any} />)}
+        </View>
+      )}
+
+      {/* ── Past ── */}
+      {past.length > 0 && (
+        <View style={s.section}>
+          <Text style={s.sectionLabel}>Past</Text>
+          {past.map(a => <AssessmentCard key={a.id} a={a as any} />)}
+        </View>
       )}
     </ScrollView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.paper,
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#F8FAF7' },
+  content:   { padding: 16, gap: 14, paddingBottom: 32 },
+
+  toolbar: {
+    flexDirection:  'row',
+    alignItems:     'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 2,
   },
-  contentPadding: {
-    paddingHorizontal: space.lg,
-    paddingVertical: space.lg,
+  toolbarText: { flex: 1 },
+  pageTitle:   { fontSize: 22, fontWeight: '700', color: colors.ink, marginBottom: 4 },
+  pageSub:     { fontSize: 13, color: colors.muted, lineHeight: 18 },
+
+  section:      { gap: 10 },
+  sectionLabel: { fontSize: 11, fontWeight: '700', color: colors.mutedSoft, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 },
+
+  emptyCard: {
+    backgroundColor: colors.card, borderRadius: 16, padding: 28,
+    borderWidth: 1, borderColor: colors.line, alignItems: 'center',
   },
-  card: {
-    backgroundColor: colors.card,
-    borderRadius: radius.card,
-    padding: space.lg,
-    marginBottom: space.sm,
-    borderWidth: 1,
-    borderColor: colors.line,
+  emptyText: { fontSize: 13, color: colors.muted, textAlign: 'center', lineHeight: 18 },
+
+  /* ── Assessment card ── */
+  assessCard: {
+    backgroundColor: colors.card, borderRadius: 14,
+    borderWidth: 1, borderColor: colors.line,
+    flexDirection: 'row', overflow: 'hidden',
+    alignItems: 'stretch',
   },
-  cardContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
+  stripe: { width: 4 },
   dateBlock: {
-    width: 56,
-    height: 56,
-    borderRadius: radius.md,
-    justifyContent: 'center',
-    alignItems: 'center',
+    width: 52, paddingVertical: 14,
+    alignItems: 'center', justifyContent: 'center',
   },
-  statusPill: {
-    paddingHorizontal: space.md,
-    paddingVertical: space.xs,
-    borderRadius: radius.pill,
-    marginLeft: space.md,
+  dateDay:  { fontSize: 9,  fontWeight: '700', letterSpacing: 0.5 },
+  dateNum:  { fontSize: 18, fontWeight: '800', marginTop: 1 },
+  dateMon:  { fontSize: 9,  fontWeight: '600', marginTop: 1 },
+  assessMain: { flex: 1, paddingHorizontal: 12, paddingVertical: 12, gap: 3 },
+  assessEyebrow: { fontSize: 9, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.7 },
+  assessTitle:   { fontSize: 14, fontWeight: '700', color: colors.ink },
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
+  metaText:{ fontSize: 12, color: colors.muted },
+  assessNote: { fontSize: 11, color: colors.muted, fontStyle: 'italic', marginTop: 3 },
+  statusBadge: {
+    paddingHorizontal: 10, paddingVertical: 6,
+    alignSelf: 'center', margin: 10,
+    borderRadius: 20, flexDirection: 'row', alignItems: 'center',
   },
-  emptyBox: {
-    paddingVertical: space.xl,
-    alignItems: 'center',
-  },
+  statusText: { fontSize: 10, fontWeight: '700' },
 });

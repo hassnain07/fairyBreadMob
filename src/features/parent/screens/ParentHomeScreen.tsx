@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -6,608 +6,699 @@ import {
   StyleSheet,
   TouchableOpacity,
   RefreshControl,
-  TextStyle,
-  TextInput,
-  Alert,
-  Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useQueryClient } from '@tanstack/react-query';
-import { Users, Plus } from 'lucide-react-native';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  ArrowRight,
+  BarChart3,
+  CalendarDays,
+  Check,
+  CircleDollarSign,
+  ClipboardList,
+} from 'lucide-react-native';
 import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import { colors, type, space, radius, shadow } from '@/theme';
 import { useAuth } from '@/app/_providers';
 import { Button } from '@/components/ui/Button';
-import { EmptyState } from '@/components/ui/EmptyState';
-import { LogOut } from 'lucide-react-native';
 import { ChildSwitcher } from '@/components/domain/ChildSwitcher';
 import { TermCreditMeter } from '@/components/domain/TermCreditMeter';
-import { UnlockBanner } from '@/components/domain/UnlockBanner';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useChildren } from '../hooks/useChildren';
 import { useFamilyGating } from '../hooks/useFamilyGating';
 import { useBookings } from '../hooks/useBookings';
 import { dataClient } from '@/lib/data/client';
-import type { Child } from '@/types/family';
+import { qk } from '@/lib/data/queryKeys';
 import type { ParentTabParamList } from '@/app/navigation/types';
 
 type Props = BottomTabScreenProps<ParentTabParamList, 'ParentHome'>;
 
+const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+
+const SUBJECT_COLORS: Record<string, { bg: string; text: string }> = {
+  Mathematics: { bg: colors.avatar.pink.bg,   text: colors.avatar.pink.fg   },
+  English:     { bg: colors.avatar.teal.bg,   text: colors.avatar.teal.fg   },
+  Reading:     { bg: colors.avatar.orange.bg, text: colors.avatar.orange.fg },
+  Science:     { bg: colors.avatar.green.bg,  text: colors.avatar.green.fg  },
+};
+const defaultSubjectColor = { bg: colors.yellowSoft, text: colors.avatar.yellow.fg };
+
+const QUICK_ACTIONS = [
+  { label: 'Book\nassessment', icon: ClipboardList, bg: colors.pinkSoft,   fg: colors.avatar.pink.fg,   screen: 'Assessments' },
+  { label: 'Book a class',    icon: CalendarDays,   bg: colors.orangeSoft, fg: colors.avatar.orange.fg, screen: 'Book'        },
+  { label: 'View reports',    icon: BarChart3,       bg: colors.tealSoft,   fg: colors.avatar.teal.fg,   screen: 'Reports'     },
+  { label: 'Make payment',    icon: CircleDollarSign,bg: colors.yellowSoft, fg: colors.avatar.yellow.fg, screen: 'Payments'    },
+] as const;
+
 export function ParentHomeScreen({ navigation }: Props) {
-  const { user, familyId, signOut } = useAuth();
+  const { familyId } = useAuth();
   const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
-  const [selectedChildId, setSelectedChildId] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
-  const [showAddChildForm, setShowAddChildForm] = useState(false);
-  const [givenName, setGivenName] = useState('');
-  const [familyName, setFamilyName] = useState('');
-  const [year, setYear] = useState('Year 1');
-  const [school, setSchool] = useState('');
+  const [selectedChildIdx, setSelectedChildIdx] = useState(0);
 
-  const handleAddChild = async () => {
-    setFormError(null);
+  const { data: children = [], isLoading: childrenLoading } = useChildren(familyId);
+  const { data: gating,        isLoading: gatingLoading   } = useFamilyGating(familyId);
+  const { data: bookings = []                              } = useBookings(familyId);
 
-    if (!givenName.trim()) {
-      setFormError('Please enter a given name.');
-      return;
-    }
+  const selectedChild = useMemo(() => children[selectedChildIdx], [children, selectedChildIdx]);
 
-    if (!familyName.trim()) {
-      setFormError('Please enter a family name.');
-      return;
-    }
+  const { data: reports = [] } = useQuery({
+    queryKey: qk.reports(selectedChild?.id ?? ''),
+    queryFn:  () => dataClient.getReportsForChild(selectedChild!.id),
+    enabled:  !!selectedChild?.id,
+  });
 
-    setSubmitting(true);
-    try {
-      if (!familyId) throw new Error('Family ID required');
+  const upcomingBookings = useMemo(() => {
+    if (!selectedChild) return [];
+    const now = new Date();
+    return bookings
+      .filter(b =>
+        b.child_id === selectedChild.id &&
+        b.status   === 'confirmed' &&
+        b.session  &&
+        new Date(b.session.starts_at) > now
+      )
+      .sort((a, b) =>
+        new Date(a.session!.starts_at).getTime() -
+        new Date(b.session!.starts_at).getTime()
+      )
+      .slice(0, 3);
+  }, [bookings, selectedChild]);
 
-      await dataClient.addChild(familyId, {
-        givenName: givenName.trim(),
-        familyName: familyName.trim(),
-        year,
-        school: school.trim() || undefined,
-      });
+  const termBookings = useMemo(() => {
+    if (!selectedChild) return 0;
+    return bookings.filter(b => b.child_id === selectedChild.id && b.status === 'confirmed').length;
+  }, [bookings, selectedChild]);
 
-      // Invalidate children query
-      await queryClient.invalidateQueries({ queryKey: ['children', familyId] });
-
-      // Reset form
-      setGivenName('');
-      setFamilyName('');
-      setYear('Year 1');
-      setSchool('');
-      setFormError(null);
-
-      // Close sheet
-      setShowAddChildForm(false);
-    } catch (e: any) {
-      setFormError(e?.message || 'Failed to add child. Please try again.');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleOpenAddChild = () => {
-    console.log('🔵 handleOpenAddChild called');
-    setShowAddChildForm(!showAddChildForm);
-  };
-
-  const handleCloseAddChild = () => {
-    setShowAddChildForm(false);
-  };
-
-  const handleSignOut = async () => {
-    try {
-      await signOut();
-    } catch (e: any) {
-      console.error('Sign out error:', e);
-    }
-  };
-
-  // Queries
-  const { data: children = [], isLoading: childrenLoading, error: childrenError } = useChildren(familyId);
-  const { data: gating, isLoading: gatingLoading } = useFamilyGating(familyId);
-  const { data: bookings = [], isLoading: bookingsLoading } = useBookings(familyId);
-
-  // Debug log
-  React.useEffect(() => {
-    console.log('ParentHomeScreen - children:', children, 'loading:', childrenLoading, 'error:', childrenError, 'familyId:', familyId);
-  }, [children, childrenLoading, childrenError, familyId]);
-
-  // Persist and restore last-selected child
-  useEffect(() => {
-    if (children.length > 0) {
-      if (!selectedChildId || !children.find((c) => c.id === selectedChildId)) {
-        setSelectedChildId(children[0].id);
-      }
-    }
-  }, [children]);
-
-  const selectedChild = useMemo(
-    () => children.find((c) => c.id === selectedChildId),
-    [children, selectedChildId]
+  const latestReport = useMemo(
+    () => (reports.length > 0 ? reports[reports.length - 1] : null),
+    [reports]
   );
-
-  const childBookings = useMemo(
-    () => bookings.filter((b) => b.child_id === selectedChildId),
-    [bookings, selectedChildId]
-  );
-
-  const getTimeOfDay = () => {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'morning';
-    if (hour < 17) return 'afternoon';
-    return 'evening';
-  };
-
-  const handleSelectChild = (child: Child) => {
-    setSelectedChildId(child.id);
-  };
 
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      await queryClient.invalidateQueries({ queryKey: ['children', familyId] });
+      await queryClient.invalidateQueries({ queryKey: ['children',      familyId] });
       await queryClient.invalidateQueries({ queryKey: ['family-gating', familyId] });
-      await queryClient.invalidateQueries({ queryKey: ['bookings', familyId] });
+      await queryClient.invalidateQueries({ queryKey: ['bookings',      familyId] });
+      if (selectedChild?.id) {
+        await queryClient.invalidateQueries({ queryKey: ['reports', selectedChild.id] });
+      }
     } finally {
       setRefreshing(false);
     }
   };
 
-  const isLoading = childrenLoading || gatingLoading || bookingsLoading;
+  const nav = (screen: string) => navigation.navigate(screen as any);
 
-  // Render the add child form
-  const renderAddChildForm = () => (
-    <Modal
-      visible={showAddChildForm}
-      transparent
-      animationType="slide"
-      onRequestClose={handleCloseAddChild}
-    >
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
-          <View style={styles.modalHeader}>
-            <Text style={[type.h2, { color: colors.ink }]}>
-              Add a child
-            </Text>
-            <TouchableOpacity onPress={handleCloseAddChild}>
-              <Text style={[type.h2, { color: colors.muted }]}>✕</Text>
-            </TouchableOpacity>
-          </View>
-
-          {formError && (
-            <View style={styles.errorBox}>
-              <Text style={[type.small, { color: colors.status.danger.fg }]}>
-                {formError}
-              </Text>
-            </View>
-          )}
-
-          <View style={styles.formField}>
-            <Text style={[type.caption, { color: colors.mutedSoft, marginBottom: space.sm }]}>
-              Given name *
-            </Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. Emma"
-              value={givenName}
-              onChangeText={setGivenName}
-              editable={!submitting}
-            />
-          </View>
-
-          <View style={styles.formField}>
-            <Text style={[type.caption, { color: colors.mutedSoft, marginBottom: space.sm }]}>
-              Family name *
-            </Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. Smith"
-              value={familyName}
-              onChangeText={setFamilyName}
-              editable={!submitting}
-            />
-          </View>
-
-          <View style={styles.formField}>
-            <Text style={[type.caption, { color: colors.mutedSoft, marginBottom: space.sm }]}>
-              Year level
-            </Text>
-            <TouchableOpacity
-              style={styles.input}
-              onPress={() => {
-                // Open year selector
-              }}
-            >
-              <Text style={[type.body, { color: colors.ink }]}>{year}</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.formField}>
-            <Text style={[type.caption, { color: colors.mutedSoft, marginBottom: space.sm }]}>
-              School (optional)
-            </Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. St Mary's Primary"
-              value={school}
-              onChangeText={setSchool}
-              editable={!submitting}
-            />
-          </View>
-
-          <View style={styles.formActions}>
-            <Button
-              label={submitting ? 'Adding...' : 'Add child'}
-              variant="primary"
-              onPress={handleAddChild}
-              loading={submitting}
-              fullWidth
-            />
-            <Button
-              label="Cancel"
-              variant="ghost"
-              onPress={handleCloseAddChild}
-              fullWidth
-            />
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
-
-  // Empty state: no children
-  if (!isLoading && children.length === 0) {
+  /* ── Loading ── */
+  if (childrenLoading || gatingLoading) {
     return (
-      <>
-        <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-          {/* Header with Sign Out */}
-          <View style={styles.headerRow}>
-            <Text style={[type.h3, { color: colors.ink } as TextStyle]}>
-              Welcome
-            </Text>
-            <TouchableOpacity
-              style={styles.signOutButton}
-              onPress={handleSignOut}
-            >
-              <LogOut size={18} color={colors.muted} />
-            </TouchableOpacity>
-          </View>
-
-          <EmptyState
-            icon={Users}
-            title="No children added yet"
-            description="Start by adding your first child to get set up."
-            actionLabel="Add your first child"
-            onAction={handleOpenAddChild}
-          />
-        </ScrollView>
-
-        {renderAddChildForm()}
-      </>
+      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+        <Skeleton height={180} borderRadius={16} />
+        <Skeleton height={110} borderRadius={16} />
+        <Skeleton height={160} borderRadius={16} />
+        <Skeleton height={130} borderRadius={16} />
+      </ScrollView>
     );
   }
 
-  // Main dashboard
+  /* ── No children ── */
+  if (!selectedChild) {
+    return (
+      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+        <View style={styles.emptyWrap}>
+          <Text style={styles.emptyTitle}>No children added yet</Text>
+          <Text style={styles.emptyBody}>
+            Start by adding your first child to get set up.
+          </Text>
+          <Button label="Add your first child" onPress={() => nav('Children')} />
+        </View>
+      </ScrollView>
+    );
+  }
+
+  const firstName = selectedChild.givenName || selectedChild.name.split(' ')[0];
+  const subjectColor = (s: string) => SUBJECT_COLORS[s] ?? defaultSubjectColor;
+  const progressPct  = Math.min(100, Math.round((termBookings / 10) * 100));
+
   return (
-    <>
-      <ScrollView
-        style={styles.container}
-        contentContainerStyle={styles.content}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
-        }
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.pink} />}
+    >
+      {/* ── Child Switcher ── */}
+      {children.length > 1 && (
+        <ChildSwitcher
+          children={children}
+          selectedChildId={selectedChild.id}
+          onSelectChild={child => {
+            const idx = children.findIndex(c => c.id === child.id);
+            if (idx >= 0) setSelectedChildIdx(idx);
+          }}
+        />
+      )}
+
+      {/* ── Welcome Card ── */}
+      <LinearGradient
+        colors={['#fff1f5', '#fff9e3']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.welcomeCard}
       >
-        {/* Header with Sign Out */}
-        <View style={styles.headerRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={[type.h1, { color: colors.ink, marginBottom: space.sm } as TextStyle]}>
-              Good {getTimeOfDay()}, {user?.firstName}
-            </Text>
-            <Text style={[type.body, { color: colors.muted, marginBottom: space.lg } as TextStyle]}>
-              Here is what is happening with your family this week.
-            </Text>
+        {/* Decorative sun */}
+        <View style={styles.sunCircle} />
+
+        <Text style={styles.eyebrow}>Your family dashboard</Text>
+        <Text style={styles.welcomeHeading}>
+          A little progress{'\n'}
+          <Text style={styles.welcomeItalic}>goes a long way.</Text>
+        </Text>
+        <Text style={styles.welcomeSub}>
+          {firstName} is on a great learning journey.
+        </Text>
+
+        <TouchableOpacity style={styles.welcomeLink} onPress={() => nav('Children')}>
+          <Text style={styles.welcomeLinkText}>View {firstName}'s progress</Text>
+          <ArrowRight size={14} color={colors.pink} />
+        </TouchableOpacity>
+
+        {/* Trophy badge */}
+        <View style={styles.trophyBadge}>
+          <Text style={styles.trophyStar}>★</Text>
+        </View>
+      </LinearGradient>
+
+      {/* ── Term Credit Meter ── */}
+      {gating?.state === 'ACTIVE_TERM' && gating.end_date && (
+        <TermCreditMeter
+          creditsRemaining={gating.classes_remaining ?? 0}
+          creditsTotal={10}
+          endDate={gating.end_date}
+        />
+      )}
+
+      {/* ── Progress Card (full-width) ── */}
+      <View style={[styles.card, shadow.card as object]}>
+        {/* heading row */}
+        <View style={styles.cardHeadRow}>
+          <View style={styles.cardHeadText}>
+            <Text style={styles.cardEyebrow}>{selectedChild.name} · {selectedChild.year}</Text>
+            <Text style={styles.cardTitle}>{firstName} is doing great!</Text>
           </View>
-          <TouchableOpacity
-            style={styles.signOutButton}
-            onPress={handleSignOut}
-          >
-            <LogOut size={18} color={colors.muted} />
+          <View style={styles.roundCheck}>
+            <Check size={16} color={colors.status.success.fg} />
+          </View>
+        </View>
+
+        {termBookings > 0 ? (
+          <View style={styles.progressRow}>
+            {/* Ring */}
+            <View style={styles.ring}>
+              <Text style={styles.ringNumber}>{termBookings}</Text>
+            </View>
+
+            {/* Info */}
+            <View style={styles.progressText}>
+              <Text style={styles.progressLabel}>Sessions this term</Text>
+              <Text style={styles.progressSub}>
+                {termBookings} class{termBookings !== 1 ? 'es' : ''} booked
+              </Text>
+
+              {/* Bar */}
+              <View style={styles.barTrack}>
+                <View style={[styles.barFill, { width: `${progressPct}%` }]} />
+              </View>
+
+              <TouchableOpacity onPress={() => nav('Bookings')}>
+                <Text style={styles.progressLink}>View bookings  →</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : (
+          <Text style={styles.emptyBody}>No classes booked yet this term.</Text>
+        )}
+      </View>
+
+      {/* ── Quick Actions (full-width 2×2) ── */}
+      <View style={[styles.card, shadow.card as object]}>
+        <Text style={styles.cardEyebrow}>Quick actions</Text>
+        <Text style={styles.cardTitle}>What would you like to do?</Text>
+
+        <View style={styles.quickGrid}>
+          {QUICK_ACTIONS.map(({ label, icon: Icon, bg, fg, screen }) => (
+            <TouchableOpacity
+              key={screen}
+              style={styles.quickBtn}
+              onPress={() => nav(screen)}
+              activeOpacity={0.75}
+            >
+              <View style={[styles.quickIconBox, { backgroundColor: bg }]}>
+                <Icon size={20} color={fg} />
+              </View>
+              <Text style={styles.quickLabel}>{label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+
+      {/* ── Upcoming Classes (full-width) ── */}
+      {upcomingBookings.length > 0 && (
+        <View style={[styles.card, shadow.card as object]}>
+          <View style={styles.sectionHeadRow}>
+            <View>
+              <Text style={styles.cardEyebrow}>This week</Text>
+              <Text style={styles.cardTitle}>Upcoming classes</Text>
+            </View>
+            <TouchableOpacity onPress={() => nav('Bookings')}>
+              <Text style={styles.linkText}>See all  →</Text>
+            </TouchableOpacity>
+          </View>
+
+          {upcomingBookings.map((b, i) => {
+            const d    = new Date(b.session!.starts_at);
+            const col  = subjectColor(b.session!.subject);
+            const time = d.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' });
+            const isLast = i === upcomingBookings.length - 1;
+
+            return (
+              <View
+                key={b.id}
+                style={[styles.classRow, !isLast && styles.classRowBorder]}
+              >
+                {/* Date block */}
+                <View style={[styles.dateBlock, { backgroundColor: col.bg }]}>
+                  <Text style={[styles.dateDay, { color: col.text }]}>
+                    {DAYS[d.getDay()]}
+                  </Text>
+                  <Text style={[styles.dateNum, { color: col.text }]}>
+                    {d.getDate()}
+                  </Text>
+                </View>
+
+                {/* Details */}
+                <View style={styles.classInfo}>
+                  <Text style={styles.classSubject}>{b.session!.subject}</Text>
+                  <Text style={styles.classMeta}>{time} · {b.session!.teacher_name}</Text>
+                </View>
+
+                {/* Status */}
+                <View style={styles.confirmedBadge}>
+                  <Text style={styles.confirmedText}>Confirmed</Text>
+                </View>
+              </View>
+            );
+          })}
+        </View>
+      )}
+
+      {/* ── Latest Report Note ── */}
+      {latestReport?.note ? (
+        <View style={[styles.card, styles.noticeCard, shadow.card as object]}>
+          <Text style={styles.noticeSymbol}>✦</Text>
+          <Text style={styles.cardEyebrow}>Latest report note</Text>
+          <Text style={styles.noticeQuote}>"{latestReport.note}"</Text>
+        </View>
+      ) : null}
+
+      {/* ── Child Summary ── */}
+      <View style={[styles.card, shadow.card as object]}>
+        <View style={styles.sectionHeadRow}>
+          <View>
+            <Text style={styles.cardEyebrow}>Your children</Text>
+            <Text style={styles.cardTitle}>Growing every day</Text>
+          </View>
+          <TouchableOpacity onPress={() => nav('Children')}>
+            <Text style={styles.linkText}>View all  →</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Child Switcher */}
-        {children.length > 1 && (
-          <ChildSwitcher
-            children={children}
-            selectedChildId={selectedChildId || undefined}
-            onSelectChild={handleSelectChild}
-          />
-        )}
+        <View style={styles.childRow}>
+          <View style={styles.childAvatar}>
+            <Text style={styles.childInitials}>{selectedChild.initials}</Text>
+          </View>
 
-        {/* Loading State */}
-        {isLoading && (
-          <View style={{ gap: space.lg }}>
-            <Skeleton height={200} borderRadius={radius.card} style={styles.skeleton} />
-            <Skeleton height={120} borderRadius={radius.card} style={styles.skeleton} />
-            <Skeleton height={150} borderRadius={radius.card} style={styles.skeleton} />
+          <View style={styles.childMeta}>
+            <Text style={styles.childName}>{selectedChild.name}</Text>
+            <Text style={styles.childSub}>
+              {selectedChild.year}
+              {selectedChild.school ? ` · ${selectedChild.school}` : ''}
+            </Text>
+          </View>
+        </View>
+
+        {latestReport && latestReport.subjects.length > 0 && (
+          <View style={styles.metricsRow}>
+            {latestReport.subjects.slice(0, 3).map(s => (
+              <View key={s.subject} style={styles.metricPill}>
+                <Text style={styles.metricPct}>{s.rating * 20}%</Text>
+                <Text style={styles.metricSubject}>{s.subject}</Text>
+              </View>
+            ))}
           </View>
         )}
-
-        {!isLoading && selectedChild && (
-          <>
-            {/* Welcome Card with Gradient */}
-            <LinearGradient
-              colors={['#FFF1F5', '#FFF9E3']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={[styles.card, styles.welcomeCard, shadow.card as object]}
-            >
-              <View style={styles.welcomeContent}>
-                <View>
-                  <Text
-                    style={[
-                      type.h1,
-                      { color: colors.ink, marginBottom: space.sm, fontSize: 24 } as TextStyle,
-                    ]}
-                  >
-                    {selectedChild.givenName} is having a
-                    <Text style={[type.accent, { color: colors.pink }]}>
-                      {' '}
-                      great
-                    </Text>{' '}
-                    learning journey.
-                  </Text>
-                  <Text
-                    style={[type.body, { color: colors.muted, marginBottom: space.lg } as TextStyle]}
-                  >
-                    Keep an eye on their progress and celebrate their wins along the way.
-                  </Text>
-                </View>
-
-                <TouchableOpacity
-                  style={styles.secondaryButton}
-                  onPress={() => navigation.getParent()?.navigate('ParentMore')}
-                >
-                  <Text style={[type.small, { color: colors.pink, fontWeight: '600' }]}>
-                    View {selectedChild.givenName}'s progress →
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Yellow sun badge - right side */}
-              <View style={styles.sunBadge}>
-                <View
-                  style={{
-                    width: 110,
-                    height: 110,
-                    borderRadius: 55,
-                    backgroundColor: '#F6CA42',
-                    opacity: 0.3,
-                  }}
-                />
-                <View
-                  style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: 16,
-                    backgroundColor: 'white',
-                    position: 'absolute',
-                    bottom: 8,
-                    right: 8,
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                  } as TextStyle}
-                >
-                  <Text style={{ fontSize: 18 }}>🏆</Text>
-                </View>
-              </View>
-            </LinearGradient>
-
-            {/* Term Credit Meter (if active term) */}
-            {gating?.state === 'ACTIVE_TERM' && gating.end_date && (
-              <TermCreditMeter
-                creditsRemaining={gating.classes_remaining}
-                creditsTotal={10}
-                endDate={gating.end_date}
-              />
-            )}
-
-            {/* Expiry Warning Banner */}
-            {gating?.state === 'TERM_EXPIRED' && <UnlockBanner type="expired" />}
-
-            {/* Progress Card */}
-            <View style={[styles.card, shadow.card as object]}>
-              <Text
-                style={[type.h3, { color: colors.ink, marginBottom: space.sm }]}
-              >
-                {selectedChild.givenName} is doing great!
-              </Text>
-              <Text style={[type.eyebrow, { color: colors.mutedSoft, marginBottom: space.lg }]}>
-                {selectedChild.year} · {selectedChild.school}
-              </Text>
-
-              {childBookings.length > 0 ? (
-                <>
-                  <Text
-                    style={[type.small, { color: colors.muted, marginBottom: space.md }]}
-                  >
-                    {childBookings.length} class(es) booked this term
-                  </Text>
-                  <View style={styles.progressRow}>
-                    <Text
-                      style={[
-                        type.bodyStrong,
-                        { color: colors.pink, marginBottom: space.sm },
-                      ]}
-                    >
-                      {childBookings.length} / 10 sessions
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    onPress={() => {
-                      navigation.navigate('Bookings');
-                    }}
-                  >
-                    <Text
-                      style={[
-                        type.small,
-                        { color: colors.pink, fontWeight: '600', marginTop: space.md },
-                      ]}
-                    >
-                      View bookings →
-                    </Text>
-                  </TouchableOpacity>
-                </>
-              ) : (
-                <Text style={[type.small, { color: colors.muted }]}>
-                  No classes booked yet this term.
-                </Text>
-              )}
-            </View>
-
-            {/* Quick Actions */}
-            <View style={styles.quickActions}>
-              <Button
-                label="Add child"
-                variant="secondary"
-                icon={Plus}
-                onPress={handleOpenAddChild}
-                fullWidth
-              />
-              <Button
-                label="Book a class"
-                variant="primary"
-                onPress={() => {
-                  navigation.navigate('Book');
-                }}
-                fullWidth
-                style={{ flex: 1 }}
-              />
-            </View>
-          </>
-        )}
-      </ScrollView>
-
-      {/* Add Child Modal - always available */}
-      {renderAddChildForm()}
-    </>
+      </View>
+    </ScrollView>
   );
 }
 
+/* ─────────────────────────────────────────────────────────── */
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.paper,
+  container: { flex: 1, backgroundColor: '#F8FAF7' },
+  content:   { padding: 16, gap: 14, paddingBottom: 32 },
+
+  /* Empty / loading */
+  emptyWrap:  { alignItems: 'center', paddingVertical: 64, gap: 12 },
+  emptyTitle: { ...type.h3, color: colors.ink, textAlign: 'center' },
+  emptyBody:  { ...type.body, color: colors.muted, textAlign: 'center' },
+
+  /* ── Welcome card ── */
+  welcomeCard: {
+    borderRadius:  16,
+    padding:       24,
+    paddingRight:  80,       // leave room for trophy
+    overflow:      'hidden',
+    position:      'relative',
+    minHeight:     180,
   },
-  content: {
-    flexGrow: 1,
-    paddingHorizontal: space.lg,
-    paddingVertical: space.lg,
-    gap: space.lg,
+  sunCircle: {
+    position:    'absolute',
+    right:       -24,
+    top:         -24,
+    width:       150,
+    height:      150,
+    borderRadius:75,
+    backgroundColor: '#F6CA42',
+    opacity:     0.25,
   },
-  headerRow: {
+  eyebrow: {
+    fontSize:    11,
+    fontWeight:  '600',
+    color:       colors.mutedSoft,
+    letterSpacing:0.8,
+    textTransform:'uppercase',
+    marginBottom:8,
+  },
+  welcomeHeading: {
+    fontSize:    26,
+    fontWeight:  '700',
+    color:       colors.ink,
+    lineHeight:  32,
+    marginBottom:8,
+  },
+  welcomeItalic: {
+    fontStyle: 'italic',
+    color:     colors.pink,
+  },
+  welcomeSub: {
+    fontSize:    13,
+    color:       colors.muted,
+    marginBottom:16,
+    lineHeight:  18,
+  },
+  welcomeLink: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: space.md,
+    alignItems:    'center',
+    gap:           4,
   },
-  signOutButton: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.line,
+  welcomeLinkText: {
+    fontSize:   13,
+    fontWeight: '600',
+    color:      colors.pink,
   },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
+  trophyBadge: {
+    position:        'absolute',
+    right:           16,
+    bottom:          16,
+    width:           40,
+    height:          40,
+    borderRadius:    20,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    alignItems:      'center',
+    justifyContent:  'center',
   },
-  modalContent: {
-    backgroundColor: colors.paper,
-    borderTopLeftRadius: radius.card,
-    borderTopRightRadius: radius.card,
-    maxHeight: '90%',
-    paddingHorizontal: space.lg,
-    paddingVertical: space.lg,
-    paddingTop: space.xl,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: space.lg,
-  },
-  skeleton: {
-    marginBottom: space.lg,
-  },
+  trophyStar: { fontSize: 20 },
+
+  /* ── Generic card ── */
   card: {
     backgroundColor: colors.card,
-    borderRadius: radius.card,
-    padding: space.lg,
-    borderWidth: 1,
-    borderColor: colors.line,
+    borderRadius:    16,
+    padding:         18,
+    borderWidth:     1,
+    borderColor:     colors.line,
   },
-  welcomeCard: {
-    flexDirection: 'row',
+
+  /* Card header */
+  cardHeadRow: {
+    flexDirection:  'row',
+    alignItems:     'flex-start',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    borderColor: 'transparent',
+    marginBottom:   16,
+    gap:            12,
   },
-  welcomeContent: {
-    flex: 1,
-    marginRight: space.lg,
+  cardHeadText: { flex: 1 },
+  cardEyebrow: {
+    fontSize:     10,
+    fontWeight:   '600',
+    color:        colors.mutedSoft,
+    letterSpacing:0.7,
+    textTransform:'uppercase',
+    marginBottom: 3,
   },
-  secondaryButton: {
-    paddingVertical: space.sm,
+  cardTitle: {
+    fontSize:   16,
+    fontWeight: '700',
+    color:      colors.ink,
+    lineHeight: 22,
   },
-  sunBadge: {
-    width: 110,
-    height: 110,
-    justifyContent: 'center',
-    alignItems: 'center',
-    position: 'relative',
+  roundCheck: {
+    width:           28,
+    height:          28,
+    borderRadius:    14,
+    backgroundColor: colors.status.success.bg,
+    alignItems:      'center',
+    justifyContent:  'center',
   },
+
+  /* Progress row */
   progressRow: {
-    marginBottom: space.md,
-  },
-  quickActions: {
     flexDirection: 'row',
-    gap: space.md,
+    alignItems:    'center',
+    gap:           16,
   },
-  sheetContent: {
-    flex: 1,
-    paddingHorizontal: space.lg,
-    paddingVertical: space.lg,
+  ring: {
+    width:           72,
+    height:          72,
+    borderRadius:    36,
+    borderWidth:     7,
+    borderColor:     colors.pink,
+    backgroundColor: colors.pinkSoft,
+    alignItems:      'center',
+    justifyContent:  'center',
+    flexShrink:      0,
   },
-  errorBox: {
-    backgroundColor: colors.status.danger.bg,
-    borderRadius: radius.md,
-    padding: space.md,
-    marginBottom: space.lg,
+  ringNumber: {
+    fontSize:   22,
+    fontWeight: '800',
+    color:      colors.pink,
   },
-  formField: {
-    marginBottom: space.lg,
+  progressText: { flex: 1 },
+  progressLabel: {
+    fontSize:     13,
+    fontWeight:   '700',
+    color:        colors.ink,
+    marginBottom: 2,
   },
-  input: {
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: radius.md,
-    paddingVertical: space.md,
-    paddingHorizontal: space.md,
-    fontSize: 15,
-    color: colors.ink,
-    backgroundColor: colors.card,
+  progressSub: {
+    fontSize:     12,
+    color:        colors.muted,
+    marginBottom: 8,
   },
-  formActions: {
-    marginTop: space.lg,
-    gap: space.md,
+  barTrack: {
+    height:       5,
+    borderRadius: 3,
+    backgroundColor: colors.pinkSoft,
+    overflow:     'hidden',
+    marginBottom: 8,
+  },
+  barFill: {
+    height:       '100%',
+    borderRadius: 3,
+    backgroundColor: colors.pink,
+  },
+  progressLink: {
+    fontSize:   12,
+    fontWeight: '600',
+    color:      colors.pink,
+  },
+
+  /* Quick actions */
+  quickGrid: {
+    flexDirection: 'row',
+    flexWrap:      'wrap',
+    gap:           10,
+    marginTop:     14,
+  },
+  quickBtn: {
+    width:           '47.5%',
+    backgroundColor: colors.surface2,
+    borderRadius:    12,
+    padding:         14,
+    borderWidth:     1,
+    borderColor:     colors.line,
+    alignItems:      'flex-start',
+    gap:             10,
+  },
+  quickIconBox: {
+    width:        38,
+    height:       38,
+    borderRadius: 10,
+    alignItems:   'center',
+    justifyContent:'center',
+  },
+  quickLabel: {
+    fontSize:   12,
+    fontWeight: '600',
+    color:      colors.ink,
+    lineHeight: 16,
+  },
+
+  /* Section header row */
+  sectionHeadRow: {
+    flexDirection:  'row',
+    justifyContent: 'space-between',
+    alignItems:     'flex-start',
+    marginBottom:   16,
+    gap:            8,
+  },
+  linkText: {
+    fontSize:   13,
+    fontWeight: '600',
+    color:      colors.pink,
+    paddingTop: 2,
+  },
+
+  /* Class rows */
+  classRow: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           12,
+    paddingVertical:12,
+  },
+  classRowBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
+  },
+  dateBlock: {
+    width:        46,
+    height:       46,
+    borderRadius: 10,
+    alignItems:   'center',
+    justifyContent:'center',
+    flexShrink:   0,
+  },
+  dateDay: {
+    fontSize:   8,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  dateNum: {
+    fontSize:   16,
+    fontWeight: '800',
+    marginTop:  1,
+  },
+  classInfo: { flex: 1 },
+  classSubject: {
+    fontSize:   14,
+    fontWeight: '700',
+    color:      colors.ink,
+    marginBottom:2,
+  },
+  classMeta: {
+    fontSize: 12,
+    color:    colors.muted,
+  },
+  confirmedBadge: {
+    backgroundColor: colors.status.success.bg,
+    borderRadius:    20,
+    paddingHorizontal:10,
+    paddingVertical:  4,
+  },
+  confirmedText: {
+    fontSize:   11,
+    fontWeight: '700',
+    color:      colors.status.success.fg,
+  },
+
+  /* Notice card */
+  noticeCard: { gap: 6 },
+  noticeSymbol: {
+    fontSize: 22,
+    color:    colors.pink,
+  },
+  noticeQuote: {
+    fontSize:   14,
+    color:      colors.ink,
+    fontStyle:  'italic',
+    lineHeight: 20,
+    marginTop:  4,
+  },
+
+  /* Child summary */
+  childRow: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           12,
+    marginTop:     14,
+    marginBottom:  4,
+  },
+  childAvatar: {
+    width:           44,
+    height:          44,
+    borderRadius:    14,
+    backgroundColor: colors.avatar.pink.bg,
+    alignItems:      'center',
+    justifyContent:  'center',
+    flexShrink:      0,
+  },
+  childInitials: {
+    fontSize:   15,
+    fontWeight: '700',
+    color:      colors.avatar.pink.fg,
+  },
+  childMeta: { flex: 1 },
+  childName: {
+    fontSize:   14,
+    fontWeight: '700',
+    color:      colors.ink,
+    marginBottom:2,
+  },
+  childSub: {
+    fontSize: 12,
+    color:    colors.muted,
+  },
+  metricsRow: {
+    flexDirection: 'row',
+    gap:           8,
+    marginTop:     12,
+    flexWrap:      'wrap',
+  },
+  metricPill: {
+    backgroundColor: colors.pinkSoft,
+    borderRadius:    20,
+    paddingHorizontal:12,
+    paddingVertical:  6,
+    alignItems:      'center',
+  },
+  metricPct: {
+    fontSize:   13,
+    fontWeight: '800',
+    color:      colors.pink,
+  },
+  metricSubject: {
+    fontSize:   10,
+    color:      colors.muted,
+    marginTop:  1,
   },
 });

@@ -1,118 +1,89 @@
 import React, { useState } from 'react';
-import { ScrollView, View, Text, StyleSheet, TouchableOpacity, KeyboardAvoidingView, Platform } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { useForm, Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { colors, type, space } from '@/theme';
+import { colors, type, space, radius } from '@/theme';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { AuthShell } from '../components/AuthShell';
 import type { AuthStackProps } from '@/app/navigation/types';
 import { dataClient } from '@/lib/data/client';
 
-const forgotPasswordSchema = z.object({
+const schema = z.object({
   email: z.string().email('Please enter a valid email address.'),
 });
-
-type ForgotPasswordFormData = z.infer<typeof forgotPasswordSchema>;
+type FormData = z.infer<typeof schema>;
 
 export function ForgotPasswordScreen({ navigation }: AuthStackProps<'ForgotPassword'>) {
-  const [error, setError] = useState<string | null>(null);
+  const [error,   setError]   = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const { control, handleSubmit } = useForm<ForgotPasswordFormData>({
-    resolver: zodResolver(forgotPasswordSchema),
+  const { control, handleSubmit } = useForm<FormData>({
+    resolver: zodResolver(schema),
     defaultValues: { email: '' },
   });
 
-  const onSubmit = async (data: ForgotPasswordFormData) => {
-    setError(null);
-    setLoading(true);
+  const onSubmit = async (data: FormData) => {
+    setError(null); setLoading(true);
     try {
-      // Note: requestPasswordResetOtp always resolves (doesn't reveal if email exists)
       await dataClient.requestPasswordResetOtp(data.email.trim().toLowerCase());
-      navigation.push('ForgotPasswordOtp', {
-        email: data.email.trim().toLowerCase(),
-      });
+      navigation.push('ForgotPasswordOtp', { email: data.email.trim().toLowerCase() });
     } catch (e: any) {
-      const message = e?.message || 'Failed to send reset code. Please try again.';
-      setError(message);
-    } finally {
-      setLoading(false);
-    }
+      setError(e?.message || 'Failed to send reset code. Please try again.');
+    } finally { setLoading(false); }
   };
 
   return (
-    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={[type.button, { color: colors.pink }]}>← Back</Text>
-        </TouchableOpacity>
-      </View>
+    <AuthShell
+      title="Reset password."
+      subtitle="Enter your email and we'll send you a 6-digit reset code."
+      onBack={() => navigation.goBack()}
+    >
+      {error && (
+        <View style={styles.errorBox}>
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      )}
 
-      <View style={styles.form}>
-        <Text style={[type.h1, { color: colors.ink, marginBottom: space.sm }]}>
-          Reset password
-        </Text>
-        <Text style={[type.body, { color: colors.muted, marginBottom: space.xxl }]}>
-          Enter your email address and we'll send you a code to reset your password.
-        </Text>
-
-        {error && (
-          <View style={styles.error}>
-            <Text style={[type.small, { color: colors.status.danger.fg }]}>{error}</Text>
-          </View>
+      <Controller
+        control={control}
+        name="email"
+        render={({ field, fieldState: { error: fe } }) => (
+          <Input
+            label="Email address"
+            placeholder="you@example.com"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoComplete="email"
+            value={field.value}
+            onChangeText={field.onChange}
+            error={fe?.message}
+          />
         )}
+      />
 
-        <Controller
-          control={control}
-          name="email"
-          render={({ field, fieldState: { error: fieldError } }) => (
-            <Input
-              label="Email Address"
-              placeholder="you@example.com"
-              keyboardType="email-address"
-              autoCapitalize="none"
-              value={field.value}
-              onChangeText={field.onChange}
-              error={fieldError?.message}
-              containerStyle={{ marginBottom: space.lg }}
-            />
-          )}
-        />
-
-        <Button
-          label="Send Reset Code"
-          variant="primary"
-          onPress={handleSubmit(onSubmit)}
-          loading={loading}
-        />
-      </View>
-    </ScrollView>
-    </KeyboardAvoidingView>
+      <Button
+        label={loading ? 'Sending…' : 'Send Reset Code'}
+        variant="primary"
+        loading={loading}
+        onPress={handleSubmit(onSubmit)}
+        fullWidth
+      />
+    </AuthShell>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.paper,
+  errorBox: {
+    backgroundColor: colors.error.bg,
+    borderRadius:    radius.md,
+    padding:         space.md,
+    borderWidth:     1,
+    borderColor:     colors.error.border,
   },
-  content: {
-    flexGrow: 1,
-    paddingHorizontal: space.lg,
-    paddingVertical: space.xxl,
-  },
-  header: {
-    marginBottom: space.xxl,
-  },
-  form: {
-    flex: 1,
-  },
-  error: {
-    backgroundColor: colors.status.danger.bg,
-    borderRadius: 8,
-    padding: space.md,
-    marginBottom: space.lg,
+  errorText: {
+    ...type.small,
+    color: colors.error.fg,
   },
 });

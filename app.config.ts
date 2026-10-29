@@ -41,6 +41,6 @@ const config: ExpoConfig = {
   extra: { 
     // eas: { projectId: 'xxx' },  // not needed for local Expo Go development
   },
-} as any;
+};
 
 export default config;

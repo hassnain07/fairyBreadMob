@@ -1,189 +1,245 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  View,
-  Text,
-  TextInput,
-  StyleSheet,
-  RefreshControl,
-  TouchableOpacity,
-  Platform,
+  ActivityIndicator,
   FlatList,
   KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Send } from 'lucide-react-native';
-import { colors, type, space, radius } from '@/theme';
+import { ArrowLeft, Send } from 'lucide-react-native';
+import { colors, type, space, radius, shadow } from '@/theme';
 import { useAuth } from '@/app/_providers';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { ChatBubble } from '@/components/domain/ChatBubble';
+import { ChatBubble, DayDivider, dayKey } from '@/components/domain/ChatBubble';
 import { useSendMessage } from '../hooks';
 import { dataClient } from '@/lib/data/client';
+import { inboxTime } from '@/lib/utils/chatTime';
+import type { ChatMessage } from '@/types/message';
 import type { ParentMessagesStackProps } from '@/app/navigation/types';
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function initials(name: string): string {
+  return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+}
+
+// ── Main screen ───────────────────────────────────────────────────────────────
 
 export function ChatDetailPage({ route, navigation }: ParentMessagesStackProps<'ChatDetail'>) {
   const { conversationId, otherPartyName } = route.params;
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
-  const [messages, setMessages] = useState<any[]>([]);
-  const [messageBody, setMessageBody] = useState('');
-  const [refreshing, setRefreshing] = useState(false);
-  const [loadingMessages, setLoadingMessages] = useState(false);
-  const flatListRef = useRef<FlatList>(null);
-  const sendMessageMutation = useSendMessage();
 
-  // Load messages when screen mounts
+  const [messages, setMessages]   = useState<ChatMessage[]>([]);
+  const [draft, setDraft]         = useState('');
+  const [loading, setLoading]     = useState(true);
+  const [sendError, setSendError] = useState<string | null>(null);
+
+  const flatListRef  = useRef<FlatList>(null);
+  const sendMutation = useSendMessage();
+
+  // ── Load + subscribe ────────────────────────────────────────────────────────
   useEffect(() => {
-    const loadMessages = async () => {
-      setLoadingMessages(true);
+    let mounted = true;
+
+    const load = async () => {
+      setLoading(true);
       try {
-        const msgs = await dataClient.getMessages?.(conversationId);
-        // Sort by created_at ascending (oldest first) for normal chat display
-        setMessages((msgs ?? []).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()));
-        // Mark conversation as read
-        await dataClient.markConversationRead?.(conversationId);
+        const msgs = await dataClient.getMessages(conversationId);
+        if (!mounted) return;
+        setMessages(
+          (msgs ?? []).slice().sort(
+            (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+          )
+        );
+        await dataClient.markConversationRead(conversationId);
       } finally {
-        setLoadingMessages(false);
+        if (mounted) setLoading(false);
       }
     };
 
-    void loadMessages();
+    void load();
 
-    // Subscribe to realtime messages
-    const subscription = dataClient.onMessagesChange?.(conversationId, (newMessage) => {
-      setMessages((prev) => {
-        // Check if message already exists (optimistic update case)
-        if (prev.some((m) => m.id === newMessage.id)) {
-          return prev;
-        }
-        // Add new message and sort
-        return [...prev, newMessage].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    const sub = dataClient.onMessagesChange?.(conversationId, (msg) => {
+      setMessages(prev => {
+        if (prev.some(m => m.id === msg.id)) return prev;
+        return [...prev, msg].sort(
+          (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        );
       });
     });
 
     return () => {
-      subscription?.unsubscribe?.();
+      mounted = false;
+      sub?.unsubscribe?.();
     };
   }, [conversationId]);
 
-  const handleSendMessage = useCallback(async () => {
-    if (!messageBody.trim()) return;
+  // ── Scroll to bottom on new message ────────────────────────────────────────
+  const scrollToEnd = useCallback((animated = true) => {
+    if (messages.length > 0) {
+      flatListRef.current?.scrollToEnd({ animated });
+    }
+  }, [messages.length]);
 
-    const body = messageBody.trim();
-    setMessageBody('');
+  // ── Send ────────────────────────────────────────────────────────────────────
+  const handleSend = useCallback(async () => {
+    const body = draft.trim();
+    if (!body) return;
 
-    // Optimistic update
-    const optimisticMessage = {
-      id: `temp-${Date.now()}`,
+    setDraft('');
+    setSendError(null);
+
+    // Optimistic message
+    const optimistic: ChatMessage = {
+      id:            `tmp-${Date.now()}`,
+      conversation_id: conversationId,
+      sender_role:   user?.role as ChatMessage['sender_role'],
+      sender_name:   user?.firstName ?? '',
       body,
-      sender_role: user?.role,
-      sender_name: user?.firstName,
-      created_at: new Date().toISOString(),
+      created_at:    new Date().toISOString(),
     };
-    setMessages((prev) => [...prev, optimisticMessage]);
+    setMessages(prev => [...prev, optimistic]);
 
     try {
-      await sendMessageMutation.mutateAsync({
-        conversationId,
-        body,
-      });
-
-      // Reload messages
-      const updated = await dataClient.getMessages?.(conversationId);
-      setMessages(updated || []);
-    } catch (e) {
-      // Remove optimistic message on error
-      setMessages((prev) => prev.filter((m) => m.id !== optimisticMessage.id));
-      setMessageBody(body);
+      await sendMutation.mutateAsync({ conversationId, body });
+      // Refresh from server to get real ID
+      const updated = await dataClient.getMessages(conversationId);
+      setMessages(
+        (updated ?? []).slice().sort(
+          (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        )
+      );
+    } catch (e: any) {
+      // Roll back optimistic
+      setMessages(prev => prev.filter(m => m.id !== optimistic.id));
+      setDraft(body);
+      setSendError(e?.message ?? 'Failed to send. Tap to retry.');
     }
-  }, [messageBody, conversationId, user?.role, user?.firstName, sendMessageMutation]);
+  }, [draft, conversationId, user, sendMutation]);
 
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    try {
-      const updated = await dataClient.getMessages?.(conversationId);
-      setMessages(updated || []);
-    } finally {
-      setRefreshing(false);
-    }
-  };
+  // ── Render list item ────────────────────────────────────────────────────────
+  const renderItem = useCallback(({ item, index }: { item: ChatMessage; index: number }) => {
+    const isOwn = item.sender_role === 'parent';
+    const showDivider =
+      index === 0 ||
+      dayKey(item.created_at) !== dayKey(messages[index - 1].created_at);
+
+    return (
+      <>
+        {showDivider && <DayDivider iso={item.created_at} />}
+        <ChatBubble
+          message={item}
+          isOwn={isOwn}
+          showSenderName={!isOwn}
+        />
+      </>
+    );
+  }, [messages]);
+
+  const canSend = draft.trim().length > 0 && !sendMutation.isPending;
 
   return (
-    <View style={styles.chatContainer}>
-      {/* Header - fixed at top */}
-      <View style={styles.chatHeader}>
-        <TouchableOpacity 
-          onPress={() => navigation.goBack()} 
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+    <View style={styles.root}>
+      {/* ── Navigation header ───────────────────────────────── */}
+      <View style={[styles.header, { paddingTop: insets.top + space.sm }]}>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={styles.backBtn}
+          hitSlop={12}
         >
-          <Text style={[type.h3, { color: colors.pink }]}>‹ Back</Text>
+          <ArrowLeft size={22} color={colors.ink} />
         </TouchableOpacity>
-        <Text style={[type.h3, { color: colors.ink }]} numberOfLines={1}>
-          {otherPartyName}
-        </Text>
+
+        {/* Avatar + name */}
+        <View style={styles.headerCenter}>
+          <View style={styles.headerAvatar}>
+            <Text style={styles.headerAvatarText}>{initials(otherPartyName)}</Text>
+          </View>
+          <View>
+            <Text style={[type.h3, { color: colors.ink }]} numberOfLines={1}>
+              {otherPartyName}
+            </Text>
+            <Text style={[type.caption, { color: colors.muted }]}>
+              Typically replies within a day
+            </Text>
+          </View>
+        </View>
+
+        {/* Spacer to keep centre centred */}
         <View style={{ width: 40 }} />
       </View>
 
-      {/* Messages with FlatList - scrollable middle section */}
-      {loadingMessages ? (
-        <View style={styles.messagesContainer}>
-          <Skeleton height={60} borderRadius={radius.md} style={{ marginVertical: space.sm }} />
-          <Skeleton height={60} borderRadius={radius.md} style={{ marginVertical: space.sm }} />
-        </View>
-      ) : (
-        <FlatList
-          ref={flatListRef}
-          data={messages}
-          keyExtractor={(m: any) => m.id}
-          renderItem={({ item }) => (
-            <ChatBubble
-              message={item}
-              isOwn={item.sender_role === user?.role}
-            />
-          )}
-          scrollEnabled
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
-          }
-          style={styles.messagesContainer}
-          contentContainerStyle={{ paddingVertical: space.lg }}
-          onContentSizeChange={() => {
-            // Scroll to bottom when new messages arrive
-            if (messages.length > 0) {
-              flatListRef.current?.scrollToEnd({ animated: true });
-            }
-          }}
-          scrollEventThrottle={16}
-          keyboardDismissMode="interactive"
-        />
-      )}
-
-      {/* Input with KeyboardAvoidingView - fixed at bottom above keyboard */}
+      {/* ── Messages ────────────────────────────────────────── */}
       <KeyboardAvoidingView
+        style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={0}
       >
-        <View style={[styles.inputContainer, { paddingBottom: Math.max(insets.bottom, space.md) }]}>
+        {loading ? (
+          <View style={styles.loadingWrap}>
+            <Skeleton height={52} borderRadius={radius.card} style={{ marginBottom: space.md }} />
+            <Skeleton height={52} borderRadius={radius.card} width="60%" style={{ marginBottom: space.md, alignSelf: 'flex-end' }} />
+            <Skeleton height={52} borderRadius={radius.card} style={{ marginBottom: space.md }} />
+          </View>
+        ) : messages.length === 0 ? (
+          <View style={styles.emptyWrap}>
+            <Text style={[type.small, { color: colors.muted, textAlign: 'center' }]}>
+              No messages yet. Say hello! 👋
+            </Text>
+          </View>
+        ) : (
+          <FlatList
+            ref={flatListRef}
+            data={messages}
+            keyExtractor={m => m.id}
+            renderItem={renderItem}
+            style={styles.flex}
+            contentContainerStyle={styles.listContent}
+            onContentSizeChange={() => scrollToEnd(false)}
+            onLayout={() => scrollToEnd(false)}
+            keyboardDismissMode="interactive"
+            showsVerticalScrollIndicator={false}
+          />
+        )}
+
+        {/* ── Send error ───────────────────────────────────── */}
+        {sendError && (
+          <View style={styles.errorBanner}>
+            <Text style={[type.small, { color: colors.error.fg, flex: 1 }]}>{sendError}</Text>
+          </View>
+        )}
+
+        {/* ── Input bar ────────────────────────────────────── */}
+        <View style={[styles.inputBar, { paddingBottom: Math.max(insets.bottom, space.md) }]}>
           <TextInput
             style={styles.input}
-            placeholder="Type a message…"
-            value={messageBody}
-            onChangeText={setMessageBody}
+            placeholder="Write a message…"
             placeholderTextColor={colors.muted}
+            value={draft}
+            onChangeText={t => { setDraft(t); setSendError(null); }}
+            onSubmitEditing={handleSend}
             multiline
             maxLength={1000}
+            returnKeyType="send"
+            blurOnSubmit={false}
           />
           <TouchableOpacity
-            style={[
-              styles.sendButton,
-              !messageBody.trim() && styles.sendButtonDisabled,
-            ]}
-            onPress={handleSendMessage}
-            disabled={!messageBody.trim() || sendMessageMutation.isPending}
+            style={[styles.sendBtn, canSend && styles.sendBtnActive]}
+            onPress={handleSend}
+            disabled={!canSend}
+            activeOpacity={0.75}
           >
-            <Send
-              size={18}
-              color={messageBody.trim() ? colors.pink : colors.muted}
-            />
+            {sendMutation.isPending ? (
+              <ActivityIndicator size="small" color={canSend ? '#fff' : colors.muted} />
+            ) : (
+              <Send size={18} color={canSend ? '#fff' : colors.muted} />
+            )}
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -191,55 +247,127 @@ export function ChatDetailPage({ route, navigation }: ParentMessagesStackProps<'
   );
 }
 
+// ── Styles ────────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  chatContainer: {
+  root: {
     flex: 1,
     backgroundColor: colors.paper,
   },
-  chatHeader: {
+  flex: {
+    flex: 1,
+  },
+
+  // header
+  header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: space.lg,
-    paddingVertical: space.md,
-    borderBottomColor: colors.line,
-    borderBottomWidth: 1,
-    backgroundColor: colors.paper,
-  },
-  messagesContainer: {
-    flex: 1,
-  },
-  inputContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: space.lg,
-    paddingVertical: space.md,
-    gap: space.sm,
-    borderTopColor: colors.line,
-    borderTopWidth: 1,
+    paddingHorizontal: space.md,
+    paddingBottom: space.md,
     backgroundColor: colors.card,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
+    ...Platform.select({
+      ios:     { shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 2 } },
+      android: { elevation: 1 },
+    }),
+  },
+  backBtn: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerCenter: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+  },
+  headerAvatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: colors.pinkSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerAvatarText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.pink,
+    letterSpacing: 0.5,
+  },
+
+  // list
+  listContent: {
+    paddingTop: space.lg,
+    paddingBottom: space.md,
+  },
+  loadingWrap: {
+    flex: 1,
+    paddingHorizontal: space.lg,
+    paddingTop: space.xl,
+  },
+  emptyWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: space.xl,
+  },
+
+  // error
+  errorBanner: {
+    marginHorizontal: space.lg,
+    marginBottom: space.sm,
+    backgroundColor: colors.error.bg,
+    borderRadius: radius.md,
+    padding: space.md,
+    borderWidth: 1,
+    borderColor: colors.error.border,
+  },
+
+  // input bar
+  inputBar: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    paddingHorizontal: space.md,
+    paddingTop: space.sm,
+    gap: space.sm,
+    backgroundColor: colors.card,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
   },
   input: {
     flex: 1,
     minHeight: 44,
-    maxHeight: 100,
-    borderRadius: radius.md,
+    maxHeight: 120,
     backgroundColor: colors.surface,
+    borderRadius: radius.card,
     paddingHorizontal: space.md,
-    paddingVertical: space.sm,
-    borderWidth: 1,
-    borderColor: colors.line,
+    paddingVertical: Platform.OS === 'ios' ? 11 : space.sm,
     fontSize: 15,
     color: colors.ink,
+    borderWidth: 1,
+    borderColor: colors.line,
+    lineHeight: 20,
   },
-  sendButton: {
+  sendBtn: {
     width: 44,
     height: 44,
-    borderRadius: radius.md,
-    justifyContent: 'center',
-    alignItems: 'center',
+    borderRadius: 22,
     backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.line,
   },
-  sendButtonDisabled: {
-    opacity: 0.5,
+  sendBtnActive: {
+    backgroundColor: colors.pink,
+    borderColor: colors.pink,
+    ...Platform.select({
+      ios:     { shadowColor: colors.pink, shadowOpacity: 0.35, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } },
+      android: { elevation: 3 },
+    }),
   },
 });

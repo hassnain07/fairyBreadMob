@@ -27,7 +27,7 @@ export async function getAllTerms(sb: AppSupabase): Promise<Term[]> {
 export async function getGating(sb: AppSupabase, familyId: string): Promise<GatingSnapshot> {
   const result = await rpc<any>(sb, 'get_family_gating', { p_family_id: familyId });
   return {
-    state: result.gating_state,
+    state: result.state,
     active_term_id: result.active_term_id,
     classes_remaining: result.classes_remaining ?? 0,
     end_date: result.end_date,

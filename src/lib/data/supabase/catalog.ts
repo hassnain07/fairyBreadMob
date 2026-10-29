@@ -93,7 +93,7 @@ export async function getUpcomingSessions(
     capacity: r.capacity,
     booked_count: r.booked_count,
     status: r.status,
-    spaces_left: r.capacity - r.booked_count,
+    spaces_left: Math.max(0, r.capacity - r.booked_count),
     subject: r.class?.program?.name || '',
     teacher_id: r.class?.teacher_id || '',
     teacher_name: r.class?.teacher?.name || '',

@@ -5,7 +5,17 @@ import { rpc } from './rpc';
 
 export async function getConversations(sb: AppSupabase): Promise<Conversation[]> {
   const result = await rpc<any[]>(sb, 'get_conversations');
-  return (result ?? []);
+  return (result ?? []).map(r => ({
+    id: r.id,
+    kind: r.kind,
+    other_party_name: r.other_party_name || r.teacher_name || r.parent_name || 'Unknown',
+    last_message_body: r.last_message_body,
+    last_message_at: r.last_message_at,
+    unread_count: r.unread_count || 0,
+    avatar_color: r.avatar_color,
+    family_id: r.family_id,
+    teacher_id: r.teacher_id,
+  }));
 }
 
 export async function startConversation(

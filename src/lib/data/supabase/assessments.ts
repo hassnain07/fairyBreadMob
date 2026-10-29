@@ -42,20 +42,42 @@ export async function getReportsForChild(sb: AppSupabase, childId: string): Prom
     .from('student_reports')
     .select('*')
     .eq('child_id', childId)
-    .order('created_at');
+    .order('created_at', { ascending: false });
 
   if (error) throw toAppError(error);
-  return data ?? [];
+  return (data ?? []).map((r: any) => ({
+    id: r.id,
+    child_id: r.child_id,
+    teacher_id: r.teacher_id,
+    term: r.term_label ?? r.term ?? '',
+    overall: r.overall ?? r.overall_rating ?? 0,
+    subjects: r.subjects ?? [],
+    strengths: r.strengths ?? '',
+    areas: r.areas ?? '',
+    note: r.note ?? '',
+    created_at: r.created_at,
+  }));
 }
 
 export async function getTeacherReports(sb: AppSupabase): Promise<StudentReport[]> {
   const { data, error } = await sb
     .from('student_reports')
     .select('*')
-    .order('created_at');
+    .order('created_at', { ascending: false });
 
   if (error) throw toAppError(error);
-  return data ?? [];
+  return (data ?? []).map((r: any) => ({
+    id: r.id,
+    child_id: r.child_id,
+    teacher_id: r.teacher_id,
+    term: r.term_label ?? r.term ?? '',
+    overall: r.overall ?? r.overall_rating ?? 0,
+    subjects: r.subjects ?? [],
+    strengths: r.strengths ?? '',
+    areas: r.areas ?? '',
+    note: r.note ?? '',
+    created_at: r.created_at,
+  }));
 }
 
 export async function createReport(sb: AppSupabase, report: NewReport): Promise<StudentReport> {

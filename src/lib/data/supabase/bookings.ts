@@ -67,7 +67,7 @@ export async function cancelBooking(
 ): Promise<BookingCancelResult> {
   const result = await rpc<any>(sb, 'cancel_booking', {
     p_booking_id: bookingId,
-    p_restore_credit: opts?.restoreCredit ?? false,
+    p_restore_credit: opts?.restoreCredit ?? null,
   });
   return {
     credit_restored: result.credit_restored,

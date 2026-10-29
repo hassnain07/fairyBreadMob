@@ -30,6 +30,7 @@ export type ParentMessagesStackParamList = {
 export type ParentMoreStackParamList = {
   MoreHub: undefined;
   MyChildren: undefined;
+  ChildProfile: { childId: string };
   MyAssessments: undefined;
   BookAssessment: undefined;
   Payments: undefined;

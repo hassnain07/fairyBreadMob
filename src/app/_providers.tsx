@@ -1,6 +1,8 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { QueryClient } from '@tanstack/react-query';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
+import { QueryClient, useQueryClient } from '@tanstack/react-query';
 import { dataClient } from '@/lib/data/client';
+import { qk } from '@/lib/data/queryKeys';
 import type { AuthUser } from '@/types/auth';
 
 export interface AuthCtx {
@@ -39,6 +41,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [inAuthFlow, setInAuthFlow] = useState(false);
+  const qc = useQueryClient();
+  const appStateRef = useRef<AppStateStatus>('active');
+
+  // ────────────────────────────────────────────────────────────────
+  // App lifecycle listener (refetch on foreground)
+  // ────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!user?.id) return;
+
+    try {
+      const subscription = AppState.addEventListener('change', (state) => {
+        appStateRef.current = state;
+        
+        // Refetch critical data when app comes to foreground
+        if (state === 'active') {
+          qc.invalidateQueries({ queryKey: qk.bookings(user.id) });
+          qc.invalidateQueries({ queryKey: qk.payments(user.id) });
+          qc.invalidateQueries({ queryKey: qk.conversations(user.id) });
+        }
+      });
+
+      return () => {
+        subscription.remove();
+      };
+    } catch (e) {
+      console.warn('AppState listener setup error:', e);
+    }
+  }, [user?.id, qc]);
 
   const refresh = useCallback(async () => {
     try {

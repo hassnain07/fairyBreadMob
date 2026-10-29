@@ -56,7 +56,6 @@ export function Button({
       accessibilityState={{ disabled: isDisabled, busy: loading }}
       disabled={isDisabled}
       onPress={() => {
-        console.log('🟢 Button.onPress fired - label:', label);
         triggerHaptic('light');
         onPress?.();
       }}

@@ -1,252 +1,149 @@
-import React, { useState, useEffect } from 'react';
-import { ScrollView, View, Text, StyleSheet, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
-import { colors, type, space } from '@/theme';
+import React, { useEffect, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
+import { colors, type, space, radius } from '@/theme';
 import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
 import { useAuth } from '@/app/_providers';
+import { AuthShell } from '../components/AuthShell';
+import { AuthFooterRow } from '../components/AuthFooterRow';
+import { OtpInput } from '../components/OtpInput';
 import type { AuthStackProps } from '@/app/navigation/types';
 import { dataClient } from '@/lib/data/client';
 
-export function SignupOtpScreen({
-  route,
-  navigation,
-}: AuthStackProps<'SignupOtp'>) {
+export function SignupOtpScreen({ route, navigation }: AuthStackProps<'SignupOtp'>) {
   const { email, firstName, lastName, phone } = route.params;
   const { signIn, setInAuthFlow } = useAuth();
-  const [otp, setOtp] = useState('');
+
+  const [step,    setStep]    = useState<'otp' | 'password'>('otp');
+  const [otp,     setOtp]     = useState('');
   const [password, setPassword] = useState('');
-  const [step, setStep] = useState<'otp' | 'password'>('otp');
-  const [error, setError] = useState<string | null>(null);
+  const [error,   setError]   = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [resendCountdown, setResendCountdown] = useState(0);
+  const [countdown, setCountdown] = useState(0);
 
   useEffect(() => {
     setInAuthFlow(true);
     return () => setInAuthFlow(false);
   }, [setInAuthFlow]);
 
-  const handleVerifyOtp = async () => {
-    if (otp.length !== 6) {
-      setError('Please enter a 6-digit code.');
-      return;
-    }
+  // Countdown timer
+  useEffect(() => {
+    if (countdown <= 0) return;
+    const t = setTimeout(() => setCountdown(c => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [countdown]);
 
-    setError(null);
-    setLoading(true);
+  const handleVerify = async () => {
+    if (otp.length !== 6) { setError('Please enter the 6-digit code.'); return; }
+    setError(null); setLoading(true);
     try {
       await dataClient.verifyOtp(email, otp, 'signup');
-      // Just proceed to password screen. The signup session is temporary.
       setStep('password');
     } catch (e: any) {
-      const message = e?.message || 'Invalid or expired code. Please try again.';
-      setError(message);
-    } finally {
-      setLoading(false);
-    }
+      setError(e?.message || 'Invalid or expired code. Please try again.');
+    } finally { setLoading(false); }
   };
 
   const handleSetPassword = async () => {
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters.');
-      return;
-    }
-
-    setError(null);
-    setLoading(true);
+    if (password.length < 8) { setError('Password must be at least 8 characters.'); return; }
+    setError(null); setLoading(true);
     try {
       await dataClient.setPassword(password);
-      // Now sign in with the new account
       await signIn(email, password);
     } catch (e: any) {
-      const message = e?.message || 'Failed to set password. Please try again.';
-      setError(message);
-    } finally {
-      setLoading(false);
-    }
+      setError(e?.message || 'Failed to set password. Please try again.');
+    } finally { setLoading(false); }
   };
 
   const handleResend = async () => {
-    setError(null);
-    setLoading(true);
+    setError(null); setLoading(true);
     try {
       await dataClient.requestSignupOtp({ email, firstName, lastName, phone });
-      setResendCountdown(60);
-      const timer = setInterval(() => {
-        setResendCountdown((prev) => {
-          if (prev <= 1) {
-            clearInterval(timer);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
+      setCountdown(60);
     } catch (e: any) {
-      const message = e?.message || 'Failed to resend code. Please try again.';
-      setError(message);
-    } finally {
-      setLoading(false);
-    }
+      setError(e?.message || 'Failed to resend code.');
+    } finally { setLoading(false); }
   };
 
+  // ── Step: set password ─────────────────────────────────────────────────────
   if (step === 'password') {
     return (
-      <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => setStep('otp')}>
-            <Text style={[type.button, { color: colors.pink }]}>← Back</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.form}>
-          <Text style={[type.h1, { color: colors.ink, marginBottom: space.sm }]}>
-            Create password
-          </Text>
-          <Text style={[type.body, { color: colors.muted, marginBottom: space.xxl }]}>
-            Choose a strong password for your account.
-          </Text>
-
-          {error && (
-            <View style={styles.error}>
-              <Text style={[type.small, { color: colors.status.danger.fg }]}>{error}</Text>
-            </View>
-          )}
-
-          <TextInput
-            style={styles.input}
-            placeholder="Enter password (min 8 characters)"
-            secureTextEntry
-            value={password}
-            onChangeText={setPassword}
-            editable={!loading}
-          />
-
-          <Button
-            label="Complete Sign Up"
-            variant="primary"
-            onPress={handleSetPassword}
-            loading={loading}
-          />
-        </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
-    );
-  }
-
-  return (
-    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={[type.button, { color: colors.pink }]}>← Back</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.form}>
-        <Text style={[type.h1, { color: colors.ink, marginBottom: space.sm }]}>
-          Verify your email
-        </Text>
-        <Text style={[type.body, { color: colors.muted, marginBottom: space.lg }]}>
-          We sent a 6-digit code to{'\n'}
-          <Text style={{ fontWeight: '600' }}>{email}</Text>
-        </Text>
-
+      <AuthShell
+        title="Create password."
+        subtitle="Choose a strong password for your account."
+        onBack={() => { setStep('otp'); setError(null); }}
+      >
         {error && (
-          <View style={styles.error}>
-            <Text style={[type.small, { color: colors.status.danger.fg }]}>{error}</Text>
+          <View style={styles.errorBox}>
+            <Text style={styles.errorText}>{error}</Text>
           </View>
         )}
 
-        <TextInput
-          style={styles.otpInput}
-          placeholder="000000"
-          keyboardType="number-pad"
-          maxLength={6}
-          value={otp}
-          onChangeText={setOtp}
+        <Input
+          label="Password"
+          variant="password"
+          placeholder="At least 8 characters"
+          autoComplete="new-password"
+          value={password}
+          onChangeText={setPassword}
+          helperText="Use a mix of letters, numbers and symbols."
           editable={!loading}
-          textAlign="center"
         />
 
         <Button
-          label="Verify"
+          label={loading ? 'Finishing up…' : 'Complete sign up'}
           variant="primary"
-          onPress={handleVerifyOtp}
           loading={loading}
-          style={{ marginBottom: space.lg }}
+          onPress={handleSetPassword}
+          fullWidth
         />
+      </AuthShell>
+    );
+  }
 
-        <View style={styles.resend}>
-          <Text style={[type.small, { color: colors.muted }]}>
-            Didn't receive the code?{' '}
-          </Text>
-          <TouchableOpacity
-            onPress={handleResend}
-            disabled={resendCountdown > 0 || loading}
-          >
-            <Text
-              style={[
-                type.small,
-                { color: resendCountdown > 0 ? colors.muted : colors.pink, fontWeight: '600' },
-              ]}
-            >
-              {resendCountdown > 0 ? `Resend in ${resendCountdown}s` : 'Resend'}
-            </Text>
-          </TouchableOpacity>
+  // ── Step: verify OTP ──────────────────────────────────────────────────────
+  return (
+    <AuthShell
+      title="Check your inbox."
+      subtitle={`We sent a 6-digit code to\n${email}`}
+      onBack={() => navigation.goBack()}
+    >
+      {error && (
+        <View style={styles.errorBox}>
+          <Text style={styles.errorText}>{error}</Text>
         </View>
-      </View>
-    </ScrollView>
-    </KeyboardAvoidingView>
+      )}
+
+      <OtpInput value={otp} onChange={setOtp} disabled={loading} />
+
+      <Button
+        label={loading ? 'Verifying…' : 'Verify'}
+        variant="primary"
+        loading={loading}
+        disabled={otp.length < 6}
+        onPress={handleVerify}
+        fullWidth
+      />
+
+      <AuthFooterRow
+        prompt="Didn't receive the code?"
+        linkLabel={countdown > 0 ? `Resend in ${countdown}s` : 'Resend'}
+        onPress={countdown > 0 || loading ? () => {} : handleResend}
+      />
+    </AuthShell>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.paper,
+  errorBox: {
+    backgroundColor: colors.error.bg,
+    borderRadius:    radius.md,
+    padding:         space.md,
+    borderWidth:     1,
+    borderColor:     colors.error.border,
   },
-  content: {
-    flexGrow: 1,
-    paddingHorizontal: space.lg,
-    paddingVertical: space.xxl,
-  },
-  header: {
-    marginBottom: space.xxl,
-  },
-  form: {
-    flex: 1,
-  },
-  error: {
-    backgroundColor: colors.status.danger.bg,
-    borderRadius: 8,
-    padding: space.md,
-    marginBottom: space.lg,
-  },
-  otpInput: {
-    borderWidth: 2,
-    borderColor: colors.line,
-    borderRadius: 12,
-    paddingVertical: space.md,
-    paddingHorizontal: space.lg,
-    fontSize: 28,
-    fontWeight: '600',
-    color: colors.ink,
-    textAlign: 'center',
-    marginBottom: space.lg,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: 8,
-    paddingVertical: space.md,
-    paddingHorizontal: space.lg,
-    fontSize: 15,
-    color: colors.ink,
-    marginBottom: space.lg,
-  },
-  resend: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 4,
+  errorText: {
+    ...type.small,
+    color: colors.error.fg,
   },
 });

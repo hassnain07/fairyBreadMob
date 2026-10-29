@@ -36,59 +36,59 @@ export async function getAllPayments(sb: AppSupabase, opts?: { status?: Payment[
 }
 
 export async function submitPayment(sb: AppSupabase, intent: PaymentIntent): Promise<Payment> {
-  // intent contains: type, familyId, proof (File or blob), amount_cents, etc.
   if (!intent.proof) throw new Error('Proof of payment is required');
 
-  // Upload file to supabase storage
-  const timestamp = Date.now();
-  const fileName = `payment-${intent.familyId}-${timestamp}`;
+  // Generate stable payment ID once per attempt
+  const paymentId = intent.paymentId || crypto.randomUUID();
+
+  // Build storage path: familyId/paymentId/filename
+  const proofName = intent.proof.name || 'proof.jpg';
+  const safeName = proofName.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const proofPath = `${intent.familyId}/${paymentId}/${safeName}`;
+
+  // Upload file to supabase storage in payment-proofs bucket
   const { error: uploadError } = await sb.storage
     .from('payment-proofs')
-    .upload(fileName, intent.proof, {
+    .upload(proofPath, intent.proof, {
       contentType: intent.proof.type || 'application/octet-stream',
+      upsert: false,
     });
 
   if (uploadError) throw toAppError(uploadError);
 
-  // Call RPC to create payment record
-  let p_child_id: string | undefined;
-  let p_session_id: string | undefined;
-
-  if (intent.type === 'individual_class') {
-    p_child_id = intent.childId;
-    p_session_id = intent.sessionId;
-  } else if (intent.type === 'assessment') {
-    p_child_id = intent.childId;
-  }
-
+  // Call RPC with exact args from web
   const result = await rpc<any>(sb, 'submit_payment', {
+    p_id: paymentId,
     p_family_id: intent.familyId,
     p_type: intent.type,
-    p_child_id,
-    p_session_id,
-    p_amount_cents: intent.amount_cents,
-    p_proof_file_name: fileName,
-    p_reference: intent.reference,
+    p_proof_path: proofPath,
+    p_proof_filename: safeName,
+    p_child_id: intent.childId ?? null,
+    p_class_session_id: intent.sessionId ?? null,
+    p_assessment_date: intent.assessmentDate ?? null,
+    p_assessment_time: intent.assessmentTime ?? null,
   });
 
   return toPayment(result);
 }
 
-export async function getProofUrl(sb: AppSupabase, paymentId: string): Promise<string> {
+export async function getProofUrl(sb: AppSupabase, paymentId: string): Promise<string | null> {
   const { data, error } = await sb
     .from('payments')
-    .select('proof_file_name')
+    .select('proof_path')
     .eq('id', paymentId)
     .single();
 
   if (error) throw toAppError(error);
-  if (!data?.proof_file_name) throw new Error('No proof file associated with this payment');
+  if (!data?.proof_path) return null;
 
-  const { data: urlData } = sb.storage
+  // Generate signed URL for private bucket (valid 1 hour)
+  const { data: signedData, error: signError } = await sb.storage
     .from('payment-proofs')
-    .getPublicUrl(data.proof_file_name);
+    .createSignedUrl(data.proof_path, 3600);
 
-  return urlData.publicUrl;
+  if (signError) return null;
+  return signedData?.signedUrl || null;
 }
 
 export async function verifyPayment(
