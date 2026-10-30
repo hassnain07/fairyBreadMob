@@ -116,7 +116,7 @@ export function createSupabaseDataClient(sb: AppSupabase): DataClient {
     getShopReceiptUrl: (id) => shop.getShopReceiptUrl(sb, id),
     getAdminShopProducts: () => shop.getAdminShopProducts(sb),
     upsertShopProduct: (p) => shop.upsertShopProduct(sb, p),
-    uploadShopProductImage: (id) => shop.uploadShopProductImage(sb, id),
+    uploadShopProductImage: (id, file) => shop.uploadShopProductImage(sb, id, file),
 
     // ── Admin ─────────────────────────────────────────────
     getAdminStats: () => admin.getAdminStats(sb),

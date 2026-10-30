@@ -61,6 +61,21 @@ export async function getUpcomingSessions(
   sb: AppSupabase,
   opts?: { from?: string; to?: string; classId?: string; teacherId?: string }
 ): Promise<ClassSession[]> {
+  const fromDate = opts?.from ?? new Date().toISOString();
+  const hasExplicitRange = !!(opts?.from || opts?.to);
+
+  // If filtering by teacher, resolve their class IDs first
+  let classIds: string[] | null = null;
+  if (opts?.teacherId) {
+    const { data: classes, error: classErr } = await sb
+      .from('classes')
+      .select('id')
+      .eq('teacher_id', opts.teacherId);
+    if (classErr) throw toAppError(classErr);
+    classIds = (classes ?? []).map((c: any) => c.id);
+    if (classIds.length === 0) return [];
+  }
+
   let q = sb
     .from('class_sessions')
     .select(`
@@ -71,34 +86,33 @@ export async function getUpcomingSessions(
         teacher:teachers(name, color)
       )
     `)
-    .gte('starts_at', opts?.from || new Date().toISOString())
+    .gte('starts_at', fromDate)
     .order('starts_at', { ascending: true });
 
-  if (opts?.to) {
-    q = q.lte('starts_at', opts.to);
-  }
-  if (opts?.classId) {
-    q = q.eq('class_id', opts.classId);
-  }
+  // Only show scheduled sessions unless an explicit range was requested
+  // (explicit range = admin reviewing past sessions too)
+  if (!hasExplicitRange) q = q.eq('status', 'scheduled');
+  if (opts?.to)      q = q.lt('starts_at', opts.to);       // exclusive upper bound, matches web
+  if (opts?.classId) q = q.eq('class_id', opts.classId);
+  if (classIds)      q = q.in('class_id', classIds);
 
-  // Force UTC timezone for the query to avoid device timezone issues
   const { data, error } = await q;
   if (error) throw toAppError(error);
 
   return (data ?? []).map((r: any) => ({
-    id: r.id,
-    class_id: r.class_id,
-    starts_at: r.starts_at,
-    ends_at: r.ends_at,
-    capacity: r.capacity,
-    booked_count: r.booked_count,
-    status: r.status,
-    spaces_left: Math.max(0, r.capacity - r.booked_count),
-    subject: r.class?.program?.name || '',
-    teacher_id: r.class?.teacher_id || '',
-    teacher_name: r.class?.teacher?.name || '',
-    teacher_color: r.class?.teacher?.color || '',
-    program_color: r.class?.program?.color || '',
+    id:            r.id,
+    class_id:      r.class_id,
+    starts_at:     r.starts_at,
+    ends_at:       r.ends_at,
+    capacity:      r.capacity,
+    booked_count:  r.booked_count,
+    status:        r.status,
+    spaces_left:   Math.max(0, r.capacity - r.booked_count),
+    subject:       r.class?.program?.name   ?? '',
+    teacher_id:    r.class?.teacher_id      ?? '',
+    teacher_name:  r.class?.teacher?.name   ?? '',
+    teacher_color: r.class?.teacher?.color  ?? '',
+    program_color: r.class?.program?.color  ?? '',
   } as ClassSession));
 }
 

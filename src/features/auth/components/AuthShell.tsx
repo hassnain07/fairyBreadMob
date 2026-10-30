@@ -77,7 +77,7 @@ export function AuthShell({ title, subtitle, onBack, children }: AuthShellProps)
           )}
 
           {/* Logo */}
-          <View style={[styles.logoWrap, !onBack && { marginTop: space.sm }]}>
+          <View style={styles.logoWrap}>
             <Image
               // eslint-disable-next-line @typescript-eslint/no-require-imports
               source={require('@/assets/brand/logo.png')}
@@ -132,17 +132,18 @@ const styles = StyleSheet.create({
 
   // logo
   logoWrap: {
-    alignItems:    'flex-start',
-    marginBottom:  space.xl,
+    alignItems:    'center',
+    marginBottom:  space.xxl,
   },
   logo: {
-    height: 30,
-    width:  130,
+    height: 52,
+    width:  220,
   },
 
   // heading
   headingWrap: {
     marginBottom: space.xl,
+    alignItems:   'center',
   },
   title: {
     fontFamily:    'DMSans-SemiBold',
@@ -151,12 +152,14 @@ const styles = StyleSheet.create({
     color:         colors.ink,
     marginBottom:  space.sm,
     letterSpacing: -0.5,
+    textAlign:     'center',
   },
   subtitle: {
     fontFamily: 'DMSans-Regular',
     fontSize:   15,
     lineHeight: 22,
     color:      colors.muted,
+    textAlign:  'center',
   },
 
   // form

@@ -145,7 +145,11 @@ export function ChatDetailPage({ route, navigation }: ParentMessagesStackProps<'
   const canSend = draft.trim().length > 0 && !sendMutation.isPending;
 
   return (
-    <View style={styles.root}>
+    <KeyboardAvoidingView
+      style={styles.root}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={0}
+    >
       {/* ── Navigation header ───────────────────────────────── */}
       <View style={[styles.header, { paddingTop: insets.top + space.sm }]}>
         <TouchableOpacity
@@ -176,74 +180,70 @@ export function ChatDetailPage({ route, navigation }: ParentMessagesStackProps<'
       </View>
 
       {/* ── Messages ────────────────────────────────────────── */}
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={0}
-      >
-        {loading ? (
-          <View style={styles.loadingWrap}>
-            <Skeleton height={52} borderRadius={radius.card} style={{ marginBottom: space.md }} />
-            <Skeleton height={52} borderRadius={radius.card} width="60%" style={{ marginBottom: space.md, alignSelf: 'flex-end' }} />
-            <Skeleton height={52} borderRadius={radius.card} style={{ marginBottom: space.md }} />
-          </View>
-        ) : messages.length === 0 ? (
-          <View style={styles.emptyWrap}>
-            <Text style={[type.small, { color: colors.muted, textAlign: 'center' }]}>
-              No messages yet. Say hello! 👋
-            </Text>
-          </View>
-        ) : (
-          <FlatList
-            ref={flatListRef}
-            data={messages}
-            keyExtractor={m => m.id}
-            renderItem={renderItem}
-            style={styles.flex}
-            contentContainerStyle={styles.listContent}
-            onContentSizeChange={() => scrollToEnd(false)}
-            onLayout={() => scrollToEnd(false)}
-            keyboardDismissMode="interactive"
-            showsVerticalScrollIndicator={false}
-          />
-        )}
-
-        {/* ── Send error ───────────────────────────────────── */}
-        {sendError && (
-          <View style={styles.errorBanner}>
-            <Text style={[type.small, { color: colors.error.fg, flex: 1 }]}>{sendError}</Text>
-          </View>
-        )}
-
-        {/* ── Input bar ────────────────────────────────────── */}
-        <View style={[styles.inputBar, { paddingBottom: Math.max(insets.bottom, space.md) }]}>
-          <TextInput
-            style={styles.input}
-            placeholder="Write a message…"
-            placeholderTextColor={colors.muted}
-            value={draft}
-            onChangeText={t => { setDraft(t); setSendError(null); }}
-            onSubmitEditing={handleSend}
-            multiline
-            maxLength={1000}
-            returnKeyType="send"
-            blurOnSubmit={false}
-          />
-          <TouchableOpacity
-            style={[styles.sendBtn, canSend && styles.sendBtnActive]}
-            onPress={handleSend}
-            disabled={!canSend}
-            activeOpacity={0.75}
-          >
-            {sendMutation.isPending ? (
-              <ActivityIndicator size="small" color={canSend ? '#fff' : colors.muted} />
-            ) : (
-              <Send size={18} color={canSend ? '#fff' : colors.muted} />
-            )}
-          </TouchableOpacity>
+      {loading ? (
+        <View style={styles.loadingWrap}>
+          <Skeleton height={52} borderRadius={radius.card} style={{ marginBottom: space.md }} />
+          <Skeleton height={52} borderRadius={radius.card} width="60%" style={{ marginBottom: space.md, alignSelf: 'flex-end' }} />
+          <Skeleton height={52} borderRadius={radius.card} style={{ marginBottom: space.md }} />
         </View>
-      </KeyboardAvoidingView>
-    </View>
+      ) : messages.length === 0 ? (
+        <View style={styles.emptyWrap}>
+          <Text style={[type.small, { color: colors.muted, textAlign: 'center' }]}>
+            No messages yet. Say hello! 👋
+          </Text>
+        </View>
+      ) : (
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          keyExtractor={m => m.id}
+          renderItem={renderItem}
+          style={styles.flex}
+          contentContainerStyle={styles.listContent}
+          onContentSizeChange={() => scrollToEnd(false)}
+          onLayout={() => scrollToEnd(false)}
+          keyboardDismissMode="interactive"
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 10 }}
+        />
+      )}
+
+      {/* ── Send error ───────────────────────────────────── */}
+      {sendError && (
+        <View style={styles.errorBanner}>
+          <Text style={[type.small, { color: colors.error.fg, flex: 1 }]}>{sendError}</Text>
+        </View>
+      )}
+
+      {/* ── Input bar ────────────────────────────────────── */}
+      <View style={[styles.inputBar, { paddingBottom: Math.max(insets.bottom, space.md) }]}>
+        <TextInput
+          style={styles.input}
+          placeholder="Write a message…"
+          placeholderTextColor={colors.muted}
+          value={draft}
+          onChangeText={t => { setDraft(t); setSendError(null); }}
+          onSubmitEditing={handleSend}
+          multiline
+          maxLength={1000}
+          returnKeyType="send"
+          blurOnSubmit={false}
+        />
+        <TouchableOpacity
+          style={[styles.sendBtn, canSend && styles.sendBtnActive]}
+          onPress={handleSend}
+          disabled={!canSend}
+          activeOpacity={0.75}
+        >
+          {sendMutation.isPending ? (
+            <ActivityIndicator size="small" color={canSend ? '#fff' : colors.muted} />
+          ) : (
+            <Send size={18} color={canSend ? '#fff' : colors.muted} />
+          )}
+        </TouchableOpacity>
+      </View>
+    </KeyboardAvoidingView>
   );
 }
 

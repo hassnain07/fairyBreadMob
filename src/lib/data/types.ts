@@ -110,7 +110,7 @@ export interface DataClient {
   getShopReceiptUrl(orderId: string): Promise<string | null>;
   getAdminShopProducts(): Promise<AdminShopProduct[]>;
   upsertShopProduct(p: ShopProductInput): Promise<AdminShopProduct>;
-  uploadShopProductImage(productId: string): Promise<string>;
+  uploadShopProductImage(productId: string, file: { uri: string; name: string; type: string }): Promise<string>;
 
   // ── Admin ─────────────────────────────────────────────
   getAdminStats(): Promise<AdminStats>;

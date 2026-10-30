@@ -28,12 +28,8 @@ function makeHeader(navigation: any) {
   return (props: any) => (
     <AppHeader
       {...props}
-      onNotifications={() =>
-        navigation.navigate('ParentMore', { screen: 'Notifications' })
-      }
-      onAccount={() =>
-        navigation.navigate('ParentMore', { screen: 'Account' })
-      }
+      onNotifications={() => navigation.navigate('ParentMore')}
+      onAccount={() => navigation.navigate('ParentMore')}
     />
   );
 }

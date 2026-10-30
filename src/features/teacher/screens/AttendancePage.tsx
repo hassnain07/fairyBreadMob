@@ -1,256 +1,403 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Check, X } from 'lucide-react-native';
+import { Check, CheckCircle, RotateCcw, X } from 'lucide-react-native';
 import { colors, type, space, radius, shadow } from '@/theme';
 import { useAuth } from '@/app/_providers';
-import { Skeleton } from '@/components/ui/Skeleton';
 import { Button } from '@/components/ui/Button';
+import { Skeleton } from '@/components/ui/Skeleton';
 import { dataClient } from '@/lib/data/client';
+import { qk } from '@/lib/data/queryKeys';
+import type { AttendanceRecord, ClassBooking } from '@/types/booking';
+import type { ClassSession } from '@/types/teacher';
 
-export function AttendancePage({ navigation }: any) {
-  const { user } = useAuth();
-  const queryClient = useQueryClient();
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
-  const [attendance, setAttendance] = useState<Record<string, 'present' | 'absent'>>({});
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-  // Get today's sessions for this teacher
-  const { data: sessions = [], isLoading } = useQuery({
-    queryKey: ['teacher-sessions-today'],
-    queryFn: () => {
-      const today = new Date().toISOString().split('T')[0];
-      const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
-      return dataClient.getUpcomingSessions?.({
-        from: today,
-        to: tomorrow,
-        teacherId: user?.id,
-      }) || Promise.resolve([]);
-    },
-  });
+const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 
-  // Get children in selected session
-  const { data: attendanceRecords = [], isLoading: recordsLoading } = useQuery({
-    queryKey: ['attendance', selectedSessionId],
-    queryFn: () => selectedSessionId ? dataClient.getAttendance?.(selectedSessionId) || Promise.resolve([]) : Promise.resolve([]),
-    enabled: !!selectedSessionId,
-  });
+function sessionLabel(s: ClassSession) {
+  const d = new Date(s.starts_at);
+  const time = d.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit', hour12: true });
+  return `${s.subject} · ${DAYS[d.getDay()]} ${d.getDate()} ${d.toLocaleDateString('en-AU', { month: 'short' })} · ${time}`;
+}
 
-  const saveAttendanceMutation = useMutation({
-    mutationFn: async () => {
-      if (!selectedSessionId || Object.keys(attendance).length === 0) {
-        throw new Error('Mark attendance before saving');
-      }
-      const records = Object.entries(attendance).map(([childId, status]) => ({
-        childId,
-        status,
-      }));
-      await dataClient.saveAttendance?.(selectedSessionId, records as any);
-    },
-    onSuccess: () => {
-      Alert.alert('Success', 'Attendance saved');
-      setAttendance({});
-      setSelectedSessionId(null);
-      queryClient.invalidateQueries({ queryKey: ['attendance'] });
-    },
-    onError: (error: any) => {
-      Alert.alert('Error', error.message || 'Failed to save attendance');
-    },
-  });
+type MarkStatus = 'present' | 'absent';
 
-  const handleToggleAttendance = (childId: string) => {
-    setAttendance(prev => ({
-      ...prev,
-      [childId]: prev[childId] === 'present' ? 'absent' : 'present',
-    }));
-  };
+// ── Session picker ────────────────────────────────────────────────────────────
 
-  if (!selectedSessionId) {
-    return (
-      <ScrollView style={styles.container} contentContainerStyle={styles.contentPadding}>
-        <Text style={[type.h1, { color: colors.ink, marginBottom: space.sm }]}>
-          Attendance
-        </Text>
-        <Text style={[type.body, { color: colors.muted, marginBottom: space.lg }]}>
-          Mark attendance for today's classes.
-        </Text>
-
-        {isLoading ? (
-          <View style={{ gap: space.lg }}>
-            <Skeleton height={100} borderRadius={radius.card} />
-          </View>
-        ) : sessions.length === 0 ? (
-          <View style={styles.emptyBox}>
-            <Text style={[type.body, { color: colors.muted, textAlign: 'center' }]}>
-              No classes scheduled for today.
-            </Text>
-          </View>
-        ) : (
-          <View style={{ gap: space.md }}>
-            {sessions.map(session => (
-              <TouchableOpacity
-                key={session.id}
-                style={[styles.sessionCard, shadow.card as object]}
-                onPress={() => setSelectedSessionId(session.id)}
-              >
-                <View style={styles.sessionContent}>
-                  <View style={styles.timeBlock}>
-                    <Text style={[type.caption, { color: '#fff', textAlign: 'center' }]}>
-                      {new Date(session.starts_at).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })}
-                    </Text>
-                  </View>
-                  <View style={{ flex: 1, marginLeft: space.md }}>
-                    <Text style={[type.h3, { color: colors.ink }]}>
-                      {(session as any)?.class?.program?.name || 'Class'}
-                    </Text>
-                    <Text style={[type.small, { color: colors.muted, marginTop: space.xs }]}>
-                      {session.booked_count} students enrolled
-                    </Text>
-                  </View>
-                </View>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-      </ScrollView>
-    );
-  }
-
-  // Attendance marking view
-  const session = sessions.find(s => s.id === selectedSessionId);
+function SessionPicker({ sessions, selectedId, onSelect }: {
+  sessions: ClassSession[];
+  selectedId: string;
+  onSelect: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = sessions.find(s => s.id === selectedId);
 
   return (
-    <View style={styles.container}>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.contentPadding} scrollEventThrottle={16}>
-        <TouchableOpacity onPress={() => setSelectedSessionId(null)} style={{ marginBottom: space.lg }}>
-          <Text style={[type.h3, { color: colors.pink }]}>← Back to classes</Text>
+    <View style={styles.pickerWrap}>
+      <Text style={styles.pickerLabel}>Session</Text>
+      <TouchableOpacity style={styles.picker} onPress={() => setOpen(v => !v)} activeOpacity={0.8}>
+        <Text style={styles.pickerText} numberOfLines={1}>
+          {selected ? sessionLabel(selected) : 'Select a session…'}
+        </Text>
+        <Text style={{ color: colors.muted, fontSize: 12 }}>{open ? '▲' : '▼'}</Text>
+      </TouchableOpacity>
+      {open && (
+        <View style={styles.pickerDropdown}>
+          {sessions.map(s => (
+            <TouchableOpacity
+              key={s.id}
+              style={[styles.pickerOption, s.id === selectedId && styles.pickerOptionActive]}
+              onPress={() => { onSelect(s.id); setOpen(false); }}
+            >
+              <Text style={[type.small, { color: s.id === selectedId ? colors.teal : colors.ink, fontWeight: s.id === selectedId ? '600' : '400' }]}>
+                {sessionLabel(s)}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+// ── Student row ───────────────────────────────────────────────────────────────
+
+function StudentRow({ name, initials, status, onMark }: {
+  name: string; initials: string;
+  status: MarkStatus | undefined;
+  onMark: (s: MarkStatus) => void;
+}) {
+  return (
+    <View style={[styles.studentRow, status === 'present' && styles.studentPresent, status === 'absent' && styles.studentAbsent]}>
+      <View style={[styles.avatar, status === 'present' && { backgroundColor: colors.status.success.bg }, status === 'absent' && { backgroundColor: colors.status.danger.bg }]}>
+        <Text style={[styles.avatarText, status === 'present' && { color: colors.status.success.fg }, status === 'absent' && { color: colors.status.danger.fg }]}>
+          {initials || name.slice(0, 2).toUpperCase()}
+        </Text>
+      </View>
+      <Text style={[styles.studentName, status === 'present' && { color: colors.status.success.fg }, status === 'absent' && { color: colors.status.danger.fg }]}>
+        {name}
+      </Text>
+      <View style={styles.markBtns}>
+        <TouchableOpacity
+          style={[styles.markBtn, status === 'present' && styles.markBtnPresent]}
+          onPress={() => onMark('present')}
+          activeOpacity={0.75}
+        >
+          <Check size={14} color={status === 'present' ? '#fff' : colors.status.success.fg} strokeWidth={3} />
+          <Text style={[styles.markBtnText, status === 'present' && { color: '#fff' }]}>Present</Text>
         </TouchableOpacity>
-
-        <Text style={[type.h2, { color: colors.ink, marginBottom: space.sm }]}>
-          {(session as any)?.class?.program?.name || 'Class'}
-        </Text>
-        <Text style={[type.small, { color: colors.muted, marginBottom: space.lg }]}>
-          {new Date(session?.starts_at || '').toLocaleDateString('en-AU', { weekday: 'long', month: 'long', day: 'numeric' })}
-        </Text>
-
-        {recordsLoading ? (
-          <View style={{ gap: space.lg }}>
-            <Skeleton height={60} borderRadius={radius.card} />
-            <Skeleton height={60} borderRadius={radius.card} />
-          </View>
-        ) : attendanceRecords.length === 0 ? (
-          <View style={styles.emptyBox}>
-            <Text style={[type.body, { color: colors.muted, textAlign: 'center' }]}>
-              No students in this class.
-            </Text>
-          </View>
-        ) : (
-          <View style={{ gap: space.md, marginBottom: space.xl }}>
-            {attendanceRecords.map((record: any) => {
-              const status = attendance[record.child_id] || record.status || 'absent';
-              return (
-                <TouchableOpacity
-                  key={record.child_id}
-                  style={[
-                    styles.attendanceRow,
-                    status === 'present' && styles.attendanceRowPresent,
-                  ]}
-                  onPress={() => handleToggleAttendance(record.child_id)}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={[type.h3, { color: colors.ink }]}>
-                      {record.child_name || `Student ${record.child_id.substring(0, 8)}`}
-                    </Text>
-                  </View>
-                  <View style={styles.statusIndicator}>
-                    {status === 'present' ? (
-                      <Check size={20} color="#fff" />
-                    ) : (
-                      <X size={20} color="#fff" />
-                    )}
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        )}
-      </ScrollView>
-
-      <View style={styles.footer}>
-        <Button
-          label="Cancel"
-          variant="secondary"
-          onPress={() => setSelectedSessionId(null)}
-        />
-        <Button
-          label="Save attendance"
-          onPress={() => saveAttendanceMutation.mutate()}
-          disabled={Object.keys(attendance).length === 0 || saveAttendanceMutation.isPending}
-        />
+        <TouchableOpacity
+          style={[styles.markBtn, status === 'absent' && styles.markBtnAbsent]}
+          onPress={() => onMark('absent')}
+          activeOpacity={0.75}
+        >
+          <X size={14} color={status === 'absent' ? '#fff' : colors.status.danger.fg} strokeWidth={3} />
+          <Text style={[styles.markBtnText, { color: status === 'absent' ? '#fff' : colors.status.danger.fg }]}>Absent</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
 }
 
+// ── Main screen ───────────────────────────────────────────────────────────────
+
+export function AttendancePage() {
+  const { teacherId } = useAuth();
+  const qc = useQueryClient();
+
+  const [selectedId, setSelectedId] = useState('');
+  const [statuses,   setStatuses]   = useState<Record<string, MarkStatus>>({});
+  const [saved,      setSaved]      = useState(false);
+  const [saveError,  setSaveError]  = useState('');
+
+  const twoWeeksAgo = useMemo(() => new Date(Date.now() - 14 * 86_400_000).toISOString(), []);
+  const oneWeekAhead = useMemo(() => new Date(Date.now() + 7 * 86_400_000).toISOString(), []);
+
+  const { data: sessions = [], isLoading: sessionsLoading } = useQuery({
+    queryKey: qk.sessions({ teacherId, from: twoWeeksAgo, to: oneWeekAhead }),
+    queryFn: () => dataClient.getUpcomingSessions({ teacherId: teacherId ?? undefined, from: twoWeeksAgo, to: oneWeekAhead }),
+    enabled: !!teacherId,
+    staleTime: 60_000,
+  });
+
+  // Auto-select first session
+  useEffect(() => {
+    if (sessions.length > 0 && !selectedId) setSelectedId(sessions[0].id);
+  }, [sessions, selectedId]);
+
+  const activeSession = sessions.find(s => s.id === selectedId);
+
+  // Load existing attendance to pre-fill
+  const { data: existingRecords = [] } = useQuery({
+    queryKey: qk.attendance(selectedId),
+    queryFn:  () => dataClient.getAttendance(selectedId),
+    enabled:  !!selectedId,
+  });
+
+  useEffect(() => {
+    if (!existingRecords.length) return;
+    const map: Record<string, MarkStatus> = {};
+    existingRecords.forEach((r: AttendanceRecord) => {
+      if (r.status === 'present' || r.status === 'absent') map[r.child_id] = r.status;
+    });
+    setStatuses(map);
+  }, [existingRecords]);
+
+  // Teacher's confirmed bookings for this session
+  const { data: bookings = [] } = useQuery({
+    queryKey: qk.teacherBookings,
+    queryFn:  () => dataClient.getBookingsForTeacher(),
+    enabled:  !!teacherId,
+    staleTime: 2 * 60_000,
+  });
+
+  const sessionBookings = bookings.filter(
+    (b: ClassBooking) => b.class_session_id === selectedId && b.status === 'confirmed'
+  );
+
+  const { mutate: save, isPending } = useMutation({
+    mutationFn: () => dataClient.saveAttendance(
+      selectedId,
+      Object.entries(statuses).map(([childId, status]) => ({ childId, status }))
+    ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: qk.attendance(selectedId) });
+      setSaved(true); setSaveError('');
+    },
+    onError: (e: any) => setSaveError(e?.message ?? 'Failed to save attendance.'),
+  });
+
+  function handleReset() { setStatuses({}); setSaved(false); setSaveError(''); }
+  function handleSessionChange(id: string) { setSelectedId(id); setStatuses({}); setSaved(false); setSaveError(''); }
+
+  // ── Saved state ───────────────────────────────────────────────────────────
+  if (saved) {
+    return (
+      <View style={[styles.root, styles.savedWrap]}>
+        <View style={styles.savedIcon}>
+          <CheckCircle size={36} color={colors.status.success.fg} />
+        </View>
+        <Text style={styles.savedTitle}>Attendance saved</Text>
+        {activeSession && (
+          <Text style={styles.savedSub}>
+            {activeSession.subject} · {new Date(activeSession.starts_at).toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' })}
+          </Text>
+        )}
+        <Button label="Mark another session" variant="soft" icon={RotateCcw} onPress={handleReset} />
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.root}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <Text style={styles.pageTitle}>Take attendance</Text>
+        <Text style={styles.pageSub}>Mark who attended this session.</Text>
+
+        {/* Session picker */}
+        {sessionsLoading ? (
+          <Skeleton height={52} borderRadius={radius.md} />
+        ) : sessions.length === 0 ? (
+          <View style={[styles.card, { alignItems: 'center', paddingVertical: space.xl }]}>
+            <Text style={styles.emptyText}>No sessions found in the past 2 weeks or upcoming week.</Text>
+          </View>
+        ) : (
+          <SessionPicker sessions={sessions} selectedId={selectedId} onSelect={handleSessionChange} />
+        )}
+
+        {/* Session details + student list */}
+        {activeSession && (
+          <View style={[styles.card, shadow.card]}>
+            <View style={styles.sessionHeader}>
+              <Text style={styles.sessionSubject}>{activeSession.subject}</Text>
+              <Text style={styles.sessionDate}>
+                {new Date(activeSession.starts_at).toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' })} · {sessionBookings.length} student{sessionBookings.length !== 1 ? 's' : ''}
+              </Text>
+            </View>
+
+            {saveError !== '' && (
+              <View style={styles.errorBox}>
+                <Text style={styles.errorText}>{saveError}</Text>
+              </View>
+            )}
+
+            {sessionBookings.length === 0 ? (
+              <Text style={styles.emptyText}>No confirmed bookings for this session.</Text>
+            ) : (
+              <View style={{ gap: space.sm }}>
+                {sessionBookings.map(b => {
+                  const child = b.child;
+                  if (!child) return null;
+                  return (
+                    <StudentRow
+                      key={child.id}
+                      name={child.name}
+                      initials={child.initials ?? child.name.slice(0, 2)}
+                      status={statuses[child.id]}
+                      onMark={status => setStatuses({ ...statuses, [child.id]: status })}
+                    />
+                  );
+                })}
+              </View>
+            )}
+          </View>
+        )}
+
+        <View style={{ height: 100 }} />
+      </ScrollView>
+
+      {/* Footer */}
+      {activeSession && sessionBookings.length > 0 && (
+        <View style={styles.footer}>
+          <Button label="Reset" variant="ghost" icon={RotateCcw} onPress={handleReset} style={{ flex: 1 }} />
+          <Button
+            label={isPending ? 'Saving…' : 'Save Attendance'}
+            variant="primary"
+            icon={Check}
+            loading={isPending}
+            disabled={Object.keys(statuses).length === 0}
+            onPress={() => save()}
+            style={{ flex: 2 }}
+          />
+        </View>
+      )}
+    </View>
+  );
+}
+
+// ── Styles ────────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.paper,
-  },
-  contentPadding: {
-    paddingHorizontal: space.lg,
-    paddingVertical: space.lg,
-  },
-  sessionCard: {
+  root: { flex: 1, backgroundColor: colors.paper },
+  content: { padding: space.lg, gap: space.lg, paddingBottom: space.huge },
+
+  pageTitle: { fontFamily: 'DMSans-SemiBold', fontSize: 24, color: colors.ink, letterSpacing: -0.3 },
+  pageSub:   { fontFamily: 'DMSans-Regular', fontSize: 14, color: colors.muted, marginTop: 4 },
+
+  card: {
     backgroundColor: colors.card,
-    borderRadius: radius.card,
-    padding: space.lg,
-    borderWidth: 1,
-    borderColor: colors.line,
+    borderRadius:    radius.card,
+    padding:         space.lg,
+    borderWidth:     1,
+    borderColor:     colors.line,
+    gap:             space.md,
   },
-  sessionContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  sessionHeader: { gap: 2 },
+  sessionSubject: { fontFamily: 'DMSans-Bold', fontSize: 15, color: colors.ink },
+  sessionDate:    { fontFamily: 'DMSans-Regular', fontSize: 12, color: colors.muted },
+
+  // session picker
+  pickerWrap: { gap: 6 },
+  pickerLabel: { fontFamily: 'DMSans-Bold', fontSize: 11, color: colors.muted, letterSpacing: 0.5, textTransform: 'uppercase' },
+  picker: {
+    flexDirection:     'row',
+    justifyContent:    'space-between',
+    alignItems:        'center',
+    backgroundColor:   colors.card,
+    borderRadius:      radius.md,
+    paddingHorizontal: space.md,
+    paddingVertical:   space.md,
+    borderWidth:       1,
+    borderColor:       colors.line,
+    minHeight:         48,
   },
-  timeBlock: {
-    width: 56,
-    height: 56,
-    borderRadius: radius.md,
-    backgroundColor: colors.pink,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  attendanceRow: {
+  pickerText: { fontFamily: 'DMSans-Regular', fontSize: 14, color: colors.ink, flex: 1 },
+  pickerDropdown: {
     backgroundColor: colors.card,
-    borderRadius: radius.card,
-    padding: space.lg,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.line,
+    borderRadius:    radius.md,
+    borderWidth:     1,
+    borderColor:     colors.line,
+    overflow:        'hidden',
+    marginTop:       4,
   },
-  attendanceRowPresent: {
-    backgroundColor: '#EDF9EF',
-    borderColor: '#C9EBCE',
+  pickerOption: {
+    paddingHorizontal: space.md,
+    paddingVertical:   space.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
   },
-  statusIndicator: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.muted,
-    justifyContent: 'center',
-    alignItems: 'center',
+  pickerOptionActive: { backgroundColor: colors.tealSoft },
+
+  // student row
+  studentRow: {
+    flexDirection:  'row',
+    alignItems:     'center',
+    gap:            space.md,
+    backgroundColor: colors.surface,
+    borderRadius:   radius.md,
+    padding:        space.sm,
+    borderWidth:    1,
+    borderColor:    colors.line,
   },
-  emptyBox: {
-    paddingVertical: space.xl,
-    alignItems: 'center',
+  studentPresent: { backgroundColor: colors.status.success.bg, borderColor: '#C9EBCE' },
+  studentAbsent:  { backgroundColor: colors.status.danger.bg,  borderColor: '#FFD2B9' },
+  avatar: {
+    width:           36,
+    height:          36,
+    borderRadius:    18,
+    backgroundColor: colors.pinkSoft,
+    alignItems:      'center',
+    justifyContent:  'center',
+    flexShrink:      0,
   },
+  avatarText: { fontFamily: 'DMSans-Bold', fontSize: 12, color: colors.avatar.pink.fg },
+  studentName: { fontFamily: 'DMSans-SemiBold', fontSize: 14, color: colors.ink, flex: 1 },
+
+  markBtns: { flexDirection: 'row', gap: space.xs },
+  markBtn: {
+    flexDirection:     'row',
+    alignItems:        'center',
+    gap:               3,
+    paddingHorizontal: space.sm,
+    paddingVertical:   space.xs,
+    borderRadius:      radius.pill,
+    backgroundColor:   colors.surface,
+    borderWidth:       1,
+    borderColor:       colors.line,
+  },
+  markBtnPresent: { backgroundColor: colors.status.success.fg, borderColor: colors.status.success.fg },
+  markBtnAbsent:  { backgroundColor: colors.status.danger.fg,  borderColor: colors.status.danger.fg  },
+  markBtnText: { fontFamily: 'DMSans-Bold', fontSize: 11, color: colors.muted },
+
+  // error
+  errorBox: {
+    backgroundColor: colors.error.bg,
+    borderRadius:    radius.md,
+    padding:         space.md,
+    borderWidth:     1,
+    borderColor:     colors.error.border,
+  },
+  errorText: { fontFamily: 'DMSans-Regular', fontSize: 13, color: colors.error.fg },
+
+  emptyText: { fontFamily: 'DMSans-Regular', fontSize: 13, color: colors.muted, textAlign: 'center', paddingVertical: space.sm },
+
+  // saved
+  savedWrap: { alignItems: 'center', justifyContent: 'center', padding: space.xl, gap: space.lg },
+  savedIcon: {
+    width:           72,
+    height:          72,
+    borderRadius:    36,
+    backgroundColor: colors.status.success.bg,
+    alignItems:      'center',
+    justifyContent:  'center',
+  },
+  savedTitle: { fontFamily: 'DMSans-Bold', fontSize: 22, color: colors.ink, textAlign: 'center' },
+  savedSub:   { fontFamily: 'DMSans-Regular', fontSize: 14, color: colors.muted, textAlign: 'center' },
+
   footer: {
-    flexDirection: 'row',
-    gap: space.md,
-    paddingHorizontal: space.lg,
-    paddingVertical: space.lg,
-    borderTopWidth: 1,
-    borderTopColor: colors.line,
+    flexDirection:     'row',
+    gap:               space.md,
+    padding:           space.lg,
+    borderTopWidth:    1,
+    borderTopColor:    colors.line,
+    backgroundColor:   colors.card,
   },
 });

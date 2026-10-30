@@ -1,22 +1,9 @@
 /**
  * AppHeader — universal header for all roles (parent / teacher / admin).
  *
- * Variants (via `variant` prop):
- *
- *  "root"   (default) — Brand logo on the left. Top-level tab screens.
- *  "detail"           — Back button + screen title on the left. Pushed stack screens.
- *
- * Right side (both variants): notification bell with unread badge + account avatar.
- *
- * ── Usage as a React Navigation header option ────────────────────────────
- *
- *   header: (props) => (
- *     <AppHeader {...props} variant="root" onNotifications={...} onAccount={...} />
- *   )
- *
- *   header: (props) => (
- *     <AppHeader {...props} variant="detail" onNotifications={...} onAccount={...} />
- *   )
+ * Variants:
+ *  "root"   — Brand badge + wordmark left, bell + avatar right. Top-level tab screens.
+ *  "detail" — Back arrow + screen title left, bell + avatar right. Pushed stack screens.
  */
 
 import React, { memo, useMemo } from 'react';
@@ -39,36 +26,49 @@ import type { Notification } from '@/types/message';
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface AppHeaderProps {
-  /** "root" → logo (top-level tabs) · "detail" → back + title (pushed screens) */
   variant?: 'root' | 'detail';
-
-  /** Title for the "detail" variant. Falls back to `options.title`. */
   title?: string;
-
-  /** Called when the back button is pressed. Falls back to `navigation.goBack`. */
   onBack?: () => void;
-
-  /** Called when the bell is pressed. */
   onNotifications?: () => void;
-
-  /** Called when the avatar is pressed. */
   onAccount?: () => void;
-
-  // Injected automatically by React Navigation
   navigation?: any;
   route?: any;
   options?: any;
   back?: any;
+  statusBarHeight?: number;
 }
+
+type RoleMeta = { color: string; soft: string; label: string };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const HEADER_HEIGHT = 56;
-const BUTTON_SIZE = 40;
-const HIT_SLOP = { top: 6, bottom: 6, left: 6, right: 6 };
-const PRESSED_BG = 'rgba(30, 42, 39, 0.06)';
+const HEADER_HEIGHT = 60;
+const AVATAR_SIZE   = 36;
+const ICON_BTN_SIZE = 40;
+const HIT           = { top: 8, bottom: 8, left: 8, right: 8 };
+const RIPPLE        = 'rgba(30, 42, 39, 0.07)';
 
-// ─── Hooks ────────────────────────────────────────────────────────────────────
+/** Adds alpha to a #rrggbb colour. Returns the input unchanged for any other format. */
+function withAlpha(color: string, alpha: number): string {
+  if (/^#[0-9a-fA-F]{6}$/.test(color)) {
+    const a = Math.round(alpha * 255).toString(16).padStart(2, '0');
+    return `${color}${a}`;
+  }
+  return color;
+}
+
+function makeRole(base: string | undefined, label: string): RoleMeta {
+  const color = base ?? colors.pink;
+  return { color, soft: withAlpha(color, 0.12), label };
+}
+
+const ROLE_META: Record<string, RoleMeta> = {
+  admin:   makeRole(colors.pink, 'Admin'),
+  teacher: makeRole((colors as any).teal, 'Teacher'),
+  parent:  makeRole((colors as any).green, 'Parent'),
+};
+
+// ─── Hooks / helpers ──────────────────────────────────────────────────────────
 
 function useUnreadCount(): number {
   const { data: notifications = [] } = useQuery<Notification[]>({
@@ -82,9 +82,7 @@ function useUnreadCount(): number {
 function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return '?';
-  const first = parts[0][0];
-  const last = parts.length > 1 ? parts[parts.length - 1][0] : '';
-  return (first + last).toUpperCase();
+  return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -106,18 +104,18 @@ const BackButton = memo(function BackButton({ onPress }: { onPress: () => void }
   return (
     <Pressable
       onPress={onPress}
-      hitSlop={HIT_SLOP}
+      hitSlop={HIT}
       accessibilityRole="button"
       accessibilityLabel="Go back"
-      android_ripple={{ color: PRESSED_BG, borderless: true, radius: BUTTON_SIZE / 2 }}
-      style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}
+      android_ripple={{ color: RIPPLE, borderless: true, radius: ICON_BTN_SIZE / 2 }}
+      style={({ pressed }) => [styles.iconBtn, pressed && styles.pressed]}
     >
-      <ArrowLeft size={22} color={colors.ink} strokeWidth={2} />
+      <ArrowLeft size={22} color={colors.ink} strokeWidth={2.1} />
     </Pressable>
   );
 });
 
-const NotificationButton = memo(function NotificationButton({
+const BellButton = memo(function BellButton({
   onPress,
   count,
 }: {
@@ -130,17 +128,13 @@ const NotificationButton = memo(function NotificationButton({
   return (
     <Pressable
       onPress={onPress}
-      hitSlop={HIT_SLOP}
+      hitSlop={HIT}
       accessibilityRole="button"
       accessibilityLabel={hasUnread ? `Notifications, ${count} unread` : 'Notifications'}
-      android_ripple={{ color: PRESSED_BG, borderless: true, radius: BUTTON_SIZE / 2 }}
-      style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}
+      android_ripple={{ color: RIPPLE, borderless: true, radius: ICON_BTN_SIZE / 2 }}
+      style={({ pressed }) => [styles.iconBtn, pressed && styles.pressed]}
     >
-      <Bell
-        size={21}
-        color={hasUnread ? colors.ink : colors.muted}
-        strokeWidth={1.9}
-      />
+      <Bell size={21} color={hasUnread ? colors.ink : colors.muted} strokeWidth={1.9} />
       {hasUnread && (
         <View
           style={[styles.badge, count > 9 && styles.badgeWide]}
@@ -158,18 +152,24 @@ const NotificationButton = memo(function NotificationButton({
 
 const AvatarButton = memo(function AvatarButton({
   initials,
+  meta,
   onPress,
 }: {
   initials: string;
+  meta: RoleMeta;
   onPress?: () => void;
 }) {
   return (
     <Pressable
       onPress={onPress}
-      hitSlop={HIT_SLOP}
+      hitSlop={HIT}
       accessibilityRole="button"
-      accessibilityLabel="Account"
-      style={({ pressed }) => [styles.avatarBtn, pressed && styles.avatarBtnPressed]}
+      accessibilityLabel={`Account, ${meta.label}`}
+      style={({ pressed }) => [
+        styles.avatarBtn,
+        { backgroundColor: meta.soft, borderColor: withAlpha(meta.color, 0.45) },
+        pressed && styles.pressed,
+      ]}
     >
       <Text style={styles.avatarText} maxFontSizeMultiplier={1.1}>
         {initials}
@@ -188,29 +188,29 @@ export function AppHeader({
   onAccount,
   navigation,
   options,
+  statusBarHeight,
 }: AppHeaderProps) {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const unread = useUnreadCount();
 
+  const role     = (user as any)?.role ?? 'parent';
+  const meta     = ROLE_META[role] ?? ROLE_META.parent;
   const fullName = user?.fullName?.trim() || user?.firstName || '';
   const initials = useMemo(() => getInitials(fullName), [fullName]);
 
-  // Resolve back handler: explicit prop → navigation.goBack → none
   const handleBack =
     onBack ?? (navigation?.canGoBack?.() ? () => navigation.goBack() : undefined);
 
   const resolvedTitle = title ?? options?.title ?? '';
 
-  // Safe-area top padding applies to the root variant only. Detail headers
-  // inside a stack navigator already have the status bar offset handled.
   const paddingTop =
-    variant === 'root'
-      ? insets.top > 0
-        ? insets.top
-        : Platform.OS === 'android'
-        ? 12
-        : 0
+    statusBarHeight !== undefined
+      ? statusBarHeight
+      : insets.top > 0
+      ? insets.top
+      : Platform.OS === 'android'
+      ? 12
       : 0;
 
   return (
@@ -218,9 +218,21 @@ export function AppHeader({
       <View style={styles.inner}>
         {/* ── Left ─────────────────────────────────────── */}
         {variant === 'root' ? (
-          <Logo />
+          <View style={styles.left}>
+            <Logo />
+            <Text
+              style={styles.brand}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.8}
+              maxFontSizeMultiplier={1.1}
+              accessibilityRole="header"
+            >
+              Fairybread <Text style={styles.brandAmp}>&amp;</Text> Fractions
+            </Text>
+          </View>
         ) : (
-          <View style={styles.detailLeft}>
+          <View style={[styles.left, styles.detailLeft]}>
             {handleBack ? <BackButton onPress={handleBack} /> : null}
             {resolvedTitle ? (
               <Text
@@ -238,8 +250,8 @@ export function AppHeader({
 
         {/* ── Right ────────────────────────────────────── */}
         <View style={styles.actions}>
-          <NotificationButton onPress={onNotifications} count={unread} />
-          <AvatarButton initials={initials} onPress={onAccount} />
+          <BellButton onPress={onNotifications} count={unread} />
+          <AvatarButton initials={initials} meta={meta} onPress={onAccount} />
         </View>
       </View>
     </View>
@@ -256,119 +268,135 @@ const styles = StyleSheet.create({
     zIndex: 10,
     ...Platform.select({
       ios: {
-        shadowColor: '#1E2A27',
-        shadowOpacity: 0.04,
-        shadowRadius: 12,
-        shadowOffset: { width: 0, height: 4 },
+        shadowColor:   '#1E2A27',
+        shadowOpacity: 0.05,
+        shadowRadius:  10,
+        shadowOffset:  { width: 0, height: 3 },
       },
       android: { elevation: 2 },
     }),
   },
+
+  // Symmetric horizontal padding so nothing touches the screen edge.
   inner: {
-    height: HEADER_HEIGHT,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: space.lg,
-    gap: space.md,
+    height:            HEADER_HEIGHT,
+    flexDirection:     'row',
+    alignItems:        'center',
+    justifyContent:    'space-between',
+    paddingHorizontal: space.md,
+    gap:               space.sm,
   },
 
-  // Root — logo
+  // Left region takes the remaining space and may shrink; actions never do.
+  left: {
+    flex:          1,
+    minWidth:      0,
+    flexDirection: 'row',
+    alignItems:    'center',
+  },
+
+  // ── Root: logo ─────────────────────────────────────────────────────────────
+  // The logo is a square round badge — keep it square and pinned to the left.
   logo: {
-    height: 30,
-    width: 140,
+    width:        40,
+    height:       40,
+    borderRadius: 20,
+    marginRight:  10,
+    flexShrink:   0,
+  },
+  brand: {
+    flex:          1,
+    fontFamily:    'DMSans-Bold',
+    fontSize:      17,
+    lineHeight:    22,
+    letterSpacing: -0.3,
+    color:         colors.ink,
+    includeFontPadding: false,
+  },
+  brandAmp: {
+    color:      colors.pink,
+    fontFamily: 'DMSans-Bold',
   },
 
-  // Detail — back + title
+  // ── Detail: back + title ───────────────────────────────────────────────────
   detailLeft: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.xs,
-    minWidth: 0,
-    // Optically align the back arrow with the screen's content edge.
-    marginLeft: -space.sm,
+    gap:        space.xs,
+    marginLeft: -8, // optically align the arrow glyph with the content edge
   },
   detailTitle: {
-    flex: 1,
-    fontFamily: 'DMSans-SemiBold',
-    fontSize: 18,
-    lineHeight: 24,
-    letterSpacing: -0.35,
-    color: colors.ink,
+    flex:          1,
+    fontFamily:    'DMSans-SemiBold',
+    fontSize:      18,
+    lineHeight:    24,
+    letterSpacing: -0.3,
+    color:         colors.ink,
   },
 
-  // Right actions
+  // ── Right actions ──────────────────────────────────────────────────────────
   actions: {
+    flexShrink:    0,
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.xs,
-    flexShrink: 0,
+    alignItems:    'center',
+    gap:           space.xs,
   },
 
   // Ghost icon button (back + bell)
   iconBtn: {
-    width: BUTTON_SIZE,
-    height: BUTTON_SIZE,
-    borderRadius: BUTTON_SIZE / 2,
-    alignItems: 'center',
+    width:          ICON_BTN_SIZE,
+    height:         ICON_BTN_SIZE,
+    borderRadius:   ICON_BTN_SIZE / 2,
+    alignItems:     'center',
     justifyContent: 'center',
-    overflow: 'visible',
+    overflow:       'visible',
   },
-  iconBtnPressed: {
-    backgroundColor: PRESSED_BG,
+  pressed: {
+    opacity:   0.7,
+    transform: [{ scale: 0.95 }],
   },
 
   // Unread badge
   badge: {
-    position: 'absolute',
-    top: 3,
-    right: 1,
-    minWidth: 17,
-    height: 17,
-    borderRadius: 9,
+    position:          'absolute',
+    top:               3,
+    right:             1,
+    minWidth:          17,
+    height:            17,
+    borderRadius:      9,
     paddingHorizontal: 4,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.pink,
-    borderWidth: 2,
-    borderColor: colors.card,
+    alignItems:        'center',
+    justifyContent:    'center',
+    backgroundColor:   colors.pink,
+    borderWidth:       2,
+    borderColor:       colors.card,
   },
   badgeWide: {
     paddingHorizontal: 5,
   },
   badgeText: {
-    fontFamily: 'DMSans-Bold',
-    fontSize: 9,
-    lineHeight: 11,
-    color: '#FFFFFF',
-    textAlign: 'center',
-    fontVariant: ['tabular-nums'],
+    fontFamily:         'DMSans-Bold',
+    fontSize:           9,
+    lineHeight:         11,
+    color:              '#FFFFFF',
+    textAlign:          'center',
+    fontVariant:        ['tabular-nums'],
     includeFontPadding: false,
   },
 
   // Avatar
   avatarBtn: {
-    width: BUTTON_SIZE - 2,
-    height: BUTTON_SIZE - 2,
-    borderRadius: (BUTTON_SIZE - 2) / 2,
-    alignItems: 'center',
+    width:          AVATAR_SIZE,
+    height:         AVATAR_SIZE,
+    borderRadius:   AVATAR_SIZE / 2,
+    alignItems:     'center',
     justifyContent: 'center',
-    marginLeft: space.xs,
-    backgroundColor: colors.avatar.pink.bg,
-    borderWidth: StyleSheet.hairlineWidth * 2,
-    borderColor: colors.line,
-  },
-  avatarBtnPressed: {
-    opacity: 0.8,
-    transform: [{ scale: 0.96 }],
+    borderWidth:    1.5,
   },
   avatarText: {
-    fontFamily: 'DMSans-Bold',
-    fontSize: 13,
-    lineHeight: 16,
-    letterSpacing: 0.3,
-    color: colors.avatar.pink.fg,
+    fontFamily:         'DMSans-Bold',
+    fontSize:           13,
+    lineHeight:         16,
+    letterSpacing:      0.3,
+    color:              colors.ink,
     includeFontPadding: false,
   },
 });

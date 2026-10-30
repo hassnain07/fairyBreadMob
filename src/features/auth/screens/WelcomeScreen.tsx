@@ -130,13 +130,14 @@ const styles = StyleSheet.create({
     justifyContent:    'center',
   },
   logo: {
-    height:       34,
-    width:        150,
+    height:       52,
+    width:        220,
     marginBottom: space.xxl,
-    alignSelf:    'flex-start',
+    alignSelf:    'center',
   },
   hero: {
     marginBottom: space.xl,
+    alignItems:   'center',
   },
   tagline: {
     fontFamily:    'DMSans-Medium',
@@ -145,6 +146,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
     textTransform: 'uppercase',
     marginBottom:  space.md,
+    textAlign:     'center',
   },
   headline: {
     fontFamily:    'DMSans-SemiBold',
@@ -153,6 +155,7 @@ const styles = StyleSheet.create({
     color:         colors.ink,
     letterSpacing: -0.8,
     marginBottom:  space.lg,
+    textAlign:     'center',
   },
   headlineAccent: {
     color:      colors.pink,
@@ -166,13 +169,15 @@ const styles = StyleSheet.create({
     fontSize:   15,
     lineHeight: 22,
     color:      colors.muted,
+    textAlign:  'center',
   },
 
   // feature pills
   pills: {
-    flexDirection: 'row',
-    flexWrap:      'wrap',
-    gap:           space.sm,
+    flexDirection:  'row',
+    flexWrap:       'wrap',
+    gap:            space.sm,
+    justifyContent: 'center',
   },
   pill: {
     backgroundColor: colors.card,

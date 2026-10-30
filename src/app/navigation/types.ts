@@ -43,11 +43,16 @@ export type ParentMoreStackParamList = {
 };
 
 // Teacher Tabs & Stacks
+export type TeacherMessagesStackParamList = {
+  TeacherConversationList: undefined;
+  TeacherChat: { conversationId: string; otherPartyName: string };
+};
+
 export type TeacherTabParamList = {
   TeacherHome: undefined;
   Attendance: undefined;
   Students: undefined;
-  Messages: undefined;
+  Messages: NavigatorScreenParams<TeacherMessagesStackParamList>;
   More: NavigatorScreenParams<TeacherMoreStackParamList>;
 };
 
@@ -126,6 +131,11 @@ export type TeacherTabProps<T extends keyof TeacherTabParamList> = BottomTabScre
 
 export type TeacherMoreStackProps<T extends keyof TeacherMoreStackParamList> = NativeStackScreenProps<
   TeacherMoreStackParamList,
+  T
+>;
+
+export type TeacherMessagesStackProps<T extends keyof TeacherMessagesStackParamList> = NativeStackScreenProps<
+  TeacherMessagesStackParamList,
   T
 >;
 

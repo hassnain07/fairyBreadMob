@@ -112,9 +112,9 @@ export async function adminRecordPayment(
   const result = await rpc<any>(sb, 'admin_record_payment', {
     p_family_id: input.familyId,
     p_type: input.type,
-    p_child_id: input.childId,
-    p_session_id: input.sessionId,
-    p_note: input.note,
+    p_child_id: input.childId ?? null,
+    p_class_session_id: input.sessionId ?? null,   // correct param name matches the DB RPC
+    p_note: input.note ?? null,
   });
   return toPayment(result);
 }

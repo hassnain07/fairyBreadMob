@@ -33,7 +33,12 @@ const config: ExpoConfig = {
   },
   plugins: [
     'expo-secure-store',
-    ['expo-splash-screen', { image: './src/assets/brand/splash-logo.png', backgroundColor: '#FFFDF9', imageWidth: 200 }],
+    ['expo-splash-screen', {
+      image:           './src/assets/brand/splash-logo.png',
+      backgroundColor: '#FFFDF9',
+      imageWidth:      220,
+      resizeMode:      'contain',
+    }],
     ['expo-image-picker', { photosPermission: 'To attach proof of payment or product photos.', cameraPermission: 'To take a photo of your payment proof or product.' }],
     // Phase A: no expo-font plugin (it doesn't apply in Expo Go)
     // Phase A: no Firebase plugin yet

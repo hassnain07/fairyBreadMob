@@ -138,12 +138,6 @@ export function AdminSettingsPage() {
       contentContainerStyle={styles.contentPadding}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
     >
-      {/* Header */}
-      <Text style={[type.h1, { color: colors.ink, marginBottom: space.sm }]}>Settings</Text>
-      <Text style={[type.body, { color: colors.muted, marginBottom: space.lg }]}>
-        Business details and notification preferences.
-      </Text>
-
       {/* Business Information */}
       <View style={styles.section}>
         <Text style={[type.h2, { color: colors.ink, marginBottom: space.lg }]}>Business Information</Text>
