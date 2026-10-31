@@ -27,16 +27,18 @@ export const toClassSession = (r: any): ClassSession => ({
   id: r.id,
   class_id: r.class_id,
   starts_at: r.starts_at,
-  ends_at: r.ends_at,
-  capacity: r.capacity,
-  booked_count: r.booked_count,
-  status: r.status,
-  spaces_left: r.capacity - r.booked_count,
-  subject: r.class?.subject ?? r.subject,
-  teacher_id: r.class?.teacher_id ?? r.teacher_id,
-  teacher_name: r.class?.teacher?.name ?? r.teacher_name,
-  teacher_color: r.class?.teacher?.color ?? r.teacher_color,
-  program_color: r.class?.program?.color ?? r.program_color,
+  ends_at: r.ends_at ?? r.starts_at,
+  capacity: r.capacity ?? 0,
+  booked_count: r.booked_count ?? 0,
+  status: r.status ?? 'scheduled',
+  spaces_left: Math.max(0, (r.capacity ?? 0) - (r.booked_count ?? 0)),
+  // The nested select returns class.program.name and class.teacher.name.
+  // Fall back to flat fields for RPC results that already carry subject/teacher_name.
+  subject: r.class?.program?.name ?? r.subject ?? '',
+  teacher_id: r.class?.teacher_id ?? r.teacher_id ?? '',
+  teacher_name: r.class?.teacher?.name ?? r.teacher_name ?? '',
+  teacher_color: r.class?.teacher?.color ?? r.teacher_color ?? 'pink',
+  program_color: r.class?.program?.color ?? r.program_color ?? 'pink',
 });
 
 export const toPayment = (r: any): Payment => ({

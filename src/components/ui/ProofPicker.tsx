@@ -9,6 +9,8 @@ export interface ProofFile {
   uri: string;
   name: string;
   type: 'image' | 'document';
+  /** Real MIME type from the picker — needed for storage uploads. */
+  mimeType?: string;
   size?: number;
 }
 
@@ -59,6 +61,7 @@ export function ProofPicker({
           uri: asset.uri,
           name: asset.fileName || `receipt-${Date.now()}.jpg`,
           type: 'image',
+          mimeType: asset.mimeType || 'image/jpeg',
           size: asset.fileSize,
         });
       }
@@ -86,10 +89,12 @@ export function ProofPicker({
           setError(`File size exceeds ${maxSizeMB}MB limit. Please choose a smaller file.`);
           return;
         }
+        const isPdf = asset.name?.endsWith('.pdf');
         onSelect({
           uri: asset.uri,
           name: asset.name,
-          type: asset.name?.endsWith('.pdf') ? 'document' : 'image',
+          type: isPdf ? 'document' : 'image',
+          mimeType: asset.mimeType || (isPdf ? 'application/pdf' : 'image/jpeg'),
           size: asset.size,
         });
       }

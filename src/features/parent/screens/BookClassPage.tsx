@@ -33,10 +33,12 @@ import { TermCreditMeter } from '@/components/domain/TermCreditMeter';
 import { UnlockBanner } from '@/components/domain/UnlockBanner';
 import { useChildren } from '../hooks/useChildren';
 import { useFamilyGating } from '../hooks/useFamilyGating';
+import { useTerms } from '../hooks/useTerms';
 import { useSessions } from '../hooks/useSessions';
 import { useBookings } from '../hooks/useBookings';
 import { dataClient } from '@/lib/data/client';
 import { qk } from '@/lib/data/queryKeys';
+import { getActiveTerm } from '@/lib/utils/termUtils';
 import type { ClassSession } from '@/types/teacher';
 import type { Child } from '@/types/family';
 import type { ParentTabParamList } from '@/app/navigation/types';
@@ -310,10 +312,12 @@ export function BookClassPage({ navigation }: Props) {
   /* ── queries ── */
   const { data: children  = [], isLoading: loadingChildren  } = useChildren(familyId);
   const { data: gating,         isLoading: loadingGating    } = useFamilyGating(familyId);
-  const { data: sessions  = [], isLoading: loadingSessions  } = useSessions({ days: 7 });
+  const { data: terms = [] } = useTerms(familyId);
+  const { data: sessions  = [], isLoading: loadingSessions  } = useSessions({ days: 7, enabled: !loadingGating });
   const { data: bookings  = []                               } = useBookings(familyId);
 
   /* ── derived ── */
+  const activeTerm = useMemo(() => getActiveTerm(terms), [terms]);
   const enrolledChildren = useMemo(() => children.filter(c => c.enrolled), [children]);
   const selectedChild    = enrolledChildren[selectedChildIdx] ?? enrolledChildren[0];
 
@@ -416,12 +420,8 @@ export function BookClassPage({ navigation }: Props) {
         </View>
 
         {/* ── Term credit meter ── */}
-        {hasTerm && gating?.end_date && (
-          <TermCreditMeter
-            creditsRemaining={gating.classes_remaining ?? 0}
-            creditsTotal={10}
-            endDate={gating.end_date}
-          />
+        {activeTerm && (
+          <TermCreditMeter term={activeTerm} />
         )}
 
         {/* ── No-term / expired unlock banner ── */}

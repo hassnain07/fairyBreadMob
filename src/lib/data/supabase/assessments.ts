@@ -87,21 +87,30 @@ export async function createReport(sb: AppSupabase, report: NewReport): Promise<
 export async function getAttendance(sb: AppSupabase, sessionId: string): Promise<AttendanceRecord[]> {
   const { data, error } = await sb
     .from('attendance')
-    .select('*')
+    .select('class_session_id, child_id, status')
     .eq('class_session_id', sessionId);
 
   if (error) throw toAppError(error);
-  return data ?? [];
+  return (data ?? []).map((r: any) => ({
+    class_session_id: r.class_session_id,
+    child_id: r.child_id,
+    status: r.status,
+  }));
 }
 
 export async function getChildAttendance(sb: AppSupabase, childId: string): Promise<AttendanceRecord[]> {
   const { data, error } = await sb
     .from('attendance')
-    .select('*')
-    .eq('child_id', childId);
+    .select('class_session_id, child_id, status')
+    .eq('child_id', childId)
+    .order('class_session_id', { ascending: false });
 
   if (error) throw toAppError(error);
-  return data ?? [];
+  return (data ?? []).map((r: any) => ({
+    class_session_id: r.class_session_id,
+    child_id: r.child_id,
+    status: r.status,
+  }));
 }
 
 export async function saveAttendance(
@@ -109,5 +118,11 @@ export async function saveAttendance(
   sessionId: string,
   records: Array<{ childId: string; status: AttendanceRecord['status'] }>
 ): Promise<number> {
-  throw new Error('Not yet implemented: saveAttendance');
+  // Matches the web portal: the save_attendance RPC takes a session id and an
+  // array of { child_id, status } records, upserting the attendance rows.
+  const result = await rpc<number>(sb, 'save_attendance', {
+    p_session_id: sessionId,
+    p_records: records.map((r) => ({ child_id: r.childId, status: r.status })),
+  });
+  return result ?? records.length;
 }

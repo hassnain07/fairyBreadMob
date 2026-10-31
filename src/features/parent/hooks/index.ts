@@ -4,6 +4,7 @@ export { useNotifications, useMarkNotificationRead, useMarkAllNotificationsRead 
 export { useChildren } from './useChildren';
 export { useChildById } from './useChildById';
 export { useFamilyGating } from './useFamilyGating';
+export { useTerms } from './useTerms';
 export { useBookings } from './useBookings';
 export { usePayments } from './usePayments';
 export { useSessions } from './useSessions';

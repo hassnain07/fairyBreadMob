@@ -17,16 +17,18 @@ export async function getSettings(sb: AppSupabase): Promise<Record<string, unkno
 }
 
 export async function getDocuments(sb: AppSupabase): Promise<Record<string, string>> {
+  // The documents table stores a storage_path + version, not a direct URL.
+  // Resolve a public storage URL per document (matching the web portal).
   const { data, error } = await sb
     .from('documents')
-    .select('key, url');
+    .select('key, storage_path, version');
 
   if (error) throw toAppError(error);
-  
-  // Convert array of {key, url} to object
+
   const result: Record<string, string> = {};
-  (data ?? []).forEach(({ key, url }) => {
-    result[key] = url;
-  });
+  for (const r of data ?? []) {
+    const { data: urlData } = sb.storage.from('documents').getPublicUrl(r.storage_path);
+    result[r.key] = `${urlData.publicUrl}?v=${r.version}`;
+  }
   return result;
 }

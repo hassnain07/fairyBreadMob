@@ -90,8 +90,10 @@ export async function getUpcomingSessions(
     .order('starts_at', { ascending: true });
 
   // Only show scheduled sessions unless an explicit range was requested
-  // (explicit range = admin reviewing past sessions too)
+  // (explicit range = admin reviewing past sessions too).
+  // Always exclude cancelled sessions — parents should never book a cancelled slot.
   if (!hasExplicitRange) q = q.eq('status', 'scheduled');
+  else                  q = q.neq('status', 'cancelled');
   if (opts?.to)      q = q.lt('starts_at', opts.to);       // exclusive upper bound, matches web
   if (opts?.classId) q = q.eq('class_id', opts.classId);
   if (classIds)      q = q.in('class_id', classIds);

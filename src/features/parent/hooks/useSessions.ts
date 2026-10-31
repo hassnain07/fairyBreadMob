@@ -1,43 +1,32 @@
 import { useQuery } from '@tanstack/react-query';
 import { dataClient } from '@/lib/data/client';
-import { addDays } from 'date-fns';
+import { qk } from '@/lib/data/queryKeys';
 
 interface UseSessionsOptions {
-  from?: Date | string;
-  to?: Date | string;
-  days?: number; // default 7
+  /** How many days ahead to look. Default 7. */
+  days?: number;
+  /** Optional explicit to-date override (YYYY-MM-DD). */
+  to?: string;
+  /** Whether the query should run. Default true. */
+  enabled?: boolean;
 }
 
 export function useSessions(opts?: UseSessionsOptions) {
   const days = opts?.days ?? 7;
-  
-  // Ensure we always use UTC ISO strings to avoid timezone issues
-  let fromStr: string;
-  if (typeof opts?.from === 'string') {
-    fromStr = opts.from;
-  } else if (opts?.from instanceof Date) {
-    fromStr = opts.from.toISOString();
-  } else {
-    // Use current time in UTC
-    fromStr = new Date().toISOString();
-  }
 
-  let toStr: string;
-  if (typeof opts?.to === 'string') {
-    toStr = opts.to;
-  } else if (opts?.to instanceof Date) {
-    toStr = opts.to.toISOString();
-  } else {
-    // Add days to the from date
-    const fromDate = new Date(fromStr);
-    toStr = addDays(fromDate, days).toISOString();
-  }
+  // Use a stable date-only string for the "to" bound so the query key
+  // doesn't change on every render (a full ISO timestamp would do that).
+  const weekTo =
+    opts?.to ??
+    new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+
+  const enabled = opts?.enabled !== false;
 
   return useQuery({
-    queryKey: ['sessions', fromStr, toStr],
-    queryFn: async () => {
-      return dataClient.getUpcomingSessions({ from: fromStr, to: toStr });
-    },
-    staleTime: 5 * 60_000, // 5 minutes
+    queryKey: qk.sessions({ to: weekTo }),
+    queryFn:  () =>
+      dataClient.getUpcomingSessions({ from: new Date().toISOString(), to: weekTo }),
+    enabled,
+    staleTime: 5 * 60_000,
   });
 }

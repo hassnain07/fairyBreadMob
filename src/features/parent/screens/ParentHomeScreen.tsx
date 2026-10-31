@@ -26,9 +26,11 @@ import { TermCreditMeter } from '@/components/domain/TermCreditMeter';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useChildren } from '../hooks/useChildren';
 import { useFamilyGating } from '../hooks/useFamilyGating';
+import { useTerms } from '../hooks/useTerms';
 import { useBookings } from '../hooks/useBookings';
 import { dataClient } from '@/lib/data/client';
 import { qk } from '@/lib/data/queryKeys';
+import { getActiveTerm } from '@/lib/utils/termUtils';
 import type { ParentTabParamList } from '@/app/navigation/types';
 
 type Props = BottomTabScreenProps<ParentTabParamList, 'ParentHome'>;
@@ -44,10 +46,10 @@ const SUBJECT_COLORS: Record<string, { bg: string; text: string }> = {
 const defaultSubjectColor = { bg: colors.yellowSoft, text: colors.avatar.yellow.fg };
 
 const QUICK_ACTIONS = [
-  { label: 'Book\nassessment', icon: ClipboardList, bg: colors.pinkSoft,   fg: colors.avatar.pink.fg,   screen: 'Assessments' },
-  { label: 'Book a class',    icon: CalendarDays,   bg: colors.orangeSoft, fg: colors.avatar.orange.fg, screen: 'Book'        },
-  { label: 'View reports',    icon: BarChart3,       bg: colors.tealSoft,   fg: colors.avatar.teal.fg,   screen: 'Reports'     },
-  { label: 'Make payment',    icon: CircleDollarSign,bg: colors.yellowSoft, fg: colors.avatar.yellow.fg, screen: 'Payments'    },
+  { label: 'Book\nassessment', icon: ClipboardList, bg: colors.pinkSoft,   fg: colors.avatar.pink.fg,   screen: 'MyAssessments' as const, target: 'more' },
+  { label: 'Book a class',    icon: CalendarDays,   bg: colors.orangeSoft, fg: colors.avatar.orange.fg, screen: 'Book'         as const, target: 'tab'  },
+  { label: 'View reports',    icon: BarChart3,       bg: colors.tealSoft,   fg: colors.avatar.teal.fg,   screen: 'Reports'      as const, target: 'more' },
+  { label: 'Make payment',    icon: CircleDollarSign,bg: colors.yellowSoft, fg: colors.avatar.yellow.fg, screen: 'Payments'     as const, target: 'more' },
 ] as const;
 
 export function ParentHomeScreen({ navigation }: Props) {
@@ -58,7 +60,10 @@ export function ParentHomeScreen({ navigation }: Props) {
 
   const { data: children = [], isLoading: childrenLoading } = useChildren(familyId);
   const { data: gating,        isLoading: gatingLoading   } = useFamilyGating(familyId);
+  const { data: terms = [] } = useTerms(familyId);
   const { data: bookings = []                              } = useBookings(familyId);
+
+  const activeTerm = useMemo(() => getActiveTerm(terms), [terms]);
 
   const selectedChild = useMemo(() => children[selectedChildIdx], [children, selectedChildIdx]);
 
@@ -109,7 +114,15 @@ export function ParentHomeScreen({ navigation }: Props) {
     }
   };
 
-  const nav = (screen: string) => navigation.navigate(screen as any);
+  const nav = (screen: string, target: 'tab' | 'more' = 'more') => {
+    if (target === 'tab') {
+      navigation.navigate(screen as any);
+    } else {
+      // Screens like Assessments/Reports/Payments live inside the
+      // ParentMore stack, so we navigate to that tab then push the screen.
+      (navigation as any).navigate('ParentMore', { screen: screen as any });
+    }
+  };
 
   /* ── Loading ── */
   if (childrenLoading || gatingLoading) {
@@ -132,7 +145,7 @@ export function ParentHomeScreen({ navigation }: Props) {
           <Text style={styles.emptyBody}>
             Start by adding your first child to get set up.
           </Text>
-          <Button label="Add your first child" onPress={() => nav('Children')} />
+          <Button label="Add your first child" onPress={() => nav('MyChildren')} />
         </View>
       </ScrollView>
     );
@@ -179,7 +192,7 @@ export function ParentHomeScreen({ navigation }: Props) {
           {firstName} is on a great learning journey.
         </Text>
 
-        <TouchableOpacity style={styles.welcomeLink} onPress={() => nav('Children')}>
+        <TouchableOpacity style={styles.welcomeLink} onPress={() => nav('MyChildren')}>
           <Text style={styles.welcomeLinkText}>View {firstName}'s progress</Text>
           <ArrowRight size={14} color={colors.pink} />
         </TouchableOpacity>
@@ -191,12 +204,8 @@ export function ParentHomeScreen({ navigation }: Props) {
       </LinearGradient>
 
       {/* ── Term Credit Meter ── */}
-      {gating?.state === 'ACTIVE_TERM' && gating.end_date && (
-        <TermCreditMeter
-          creditsRemaining={gating.classes_remaining ?? 0}
-          creditsTotal={10}
-          endDate={gating.end_date}
-        />
+      {activeTerm && (
+        <TermCreditMeter term={activeTerm} />
       )}
 
       {/* ── Progress Card (full-width) ── */}
@@ -231,7 +240,7 @@ export function ParentHomeScreen({ navigation }: Props) {
                 <View style={[styles.barFill, { width: `${progressPct}%` }]} />
               </View>
 
-              <TouchableOpacity onPress={() => nav('Bookings')}>
+              <TouchableOpacity onPress={() => nav('Bookings', 'tab')}>
                 <Text style={styles.progressLink}>View bookings  →</Text>
               </TouchableOpacity>
             </View>
@@ -247,11 +256,11 @@ export function ParentHomeScreen({ navigation }: Props) {
         <Text style={styles.cardTitle}>What would you like to do?</Text>
 
         <View style={styles.quickGrid}>
-          {QUICK_ACTIONS.map(({ label, icon: Icon, bg, fg, screen }) => (
+          {QUICK_ACTIONS.map(({ label, icon: Icon, bg, fg, screen, target }) => (
             <TouchableOpacity
               key={screen}
               style={styles.quickBtn}
-              onPress={() => nav(screen)}
+              onPress={() => nav(screen, target)}
               activeOpacity={0.75}
             >
               <View style={[styles.quickIconBox, { backgroundColor: bg }]}>
@@ -271,7 +280,7 @@ export function ParentHomeScreen({ navigation }: Props) {
               <Text style={styles.cardEyebrow}>This week</Text>
               <Text style={styles.cardTitle}>Upcoming classes</Text>
             </View>
-            <TouchableOpacity onPress={() => nav('Bookings')}>
+            <TouchableOpacity onPress={() => nav('Bookings', 'tab')}>
               <Text style={styles.linkText}>See all  →</Text>
             </TouchableOpacity>
           </View>
@@ -329,7 +338,7 @@ export function ParentHomeScreen({ navigation }: Props) {
             <Text style={styles.cardEyebrow}>Your children</Text>
             <Text style={styles.cardTitle}>Growing every day</Text>
           </View>
-          <TouchableOpacity onPress={() => nav('Children')}>
+          <TouchableOpacity onPress={() => nav('MyChildren')}>
             <Text style={styles.linkText}>View all  →</Text>
           </TouchableOpacity>
         </View>

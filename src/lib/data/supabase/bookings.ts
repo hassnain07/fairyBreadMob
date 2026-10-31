@@ -4,13 +4,21 @@ import { toAppError } from '../errors';
 import { rpc } from './rpc';
 import { toClassBooking } from './mappers';
 
+/**
+ * Shared select for class_bookings — the nested class → program/teacher join
+ * is required so toClassSession can resolve subject + teacher_name.
+ * Matches the web portal's BOOKING_SELECT exactly.
+ */
+const BOOKING_SELECT =
+  '*, child:children(id,name,initials), session:class_sessions(*, class:classes(teacher_id, program:programs(name,color), teacher:teachers(name,color)))';
+
 export async function getBookings(sb: AppSupabase, familyId: string): Promise<ClassBooking[]> {
   const { data, error } = await sb
     .from('class_bookings')
-    .select('*, child:children(id,name,initials), session:class_sessions(*)')
+    .select(BOOKING_SELECT)
     .eq('family_id', familyId)
     .neq('status', 'cancelled')
-    .order('created_at');
+    .order('created_at', { ascending: false });
 
   if (error) throw toAppError(error);
   return (data ?? []).map(toClassBooking);
@@ -19,8 +27,8 @@ export async function getBookings(sb: AppSupabase, familyId: string): Promise<Cl
 export async function getAllBookings(sb: AppSupabase): Promise<ClassBooking[]> {
   const { data, error } = await sb
     .from('class_bookings')
-    .select('*, child:children(id,name,initials), session:class_sessions(*)')
-    .order('created_at');
+    .select(BOOKING_SELECT)
+    .order('created_at', { ascending: false });
 
   if (error) throw toAppError(error);
   return (data ?? []).map(toClassBooking);
@@ -29,8 +37,9 @@ export async function getAllBookings(sb: AppSupabase): Promise<ClassBooking[]> {
 export async function getBookingsForTeacher(sb: AppSupabase): Promise<ClassBooking[]> {
   const { data, error } = await sb
     .from('class_bookings')
-    .select('*, child:children(id,name,initials), session:class_sessions(*)')
-    .order('created_at');
+    .select(BOOKING_SELECT)
+    .eq('status', 'confirmed')
+    .order('created_at', { ascending: false });
 
   if (error) throw toAppError(error);
   return (data ?? []).map(toClassBooking);
@@ -78,7 +87,7 @@ export async function cancelBooking(
 export async function getWaitingList(sb: AppSupabase): Promise<ClassBooking[]> {
   const { data, error } = await sb
     .from('class_bookings')
-    .select('*, child:children(id,name,initials), session:class_sessions(*)')
+    .select(BOOKING_SELECT)
     .eq('status', 'waiting_list')
     .order('created_at');
 

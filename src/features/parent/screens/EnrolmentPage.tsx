@@ -118,6 +118,14 @@ interface ChildPickerProps {
 function ChildPicker({ children, selected, onSelect }: ChildPickerProps) {
   const [open, setOpen] = useState(false);
 
+  // Only show children who are not yet enrolled — enrolling an already-enrolled
+  // child is pointless and confusing, so exclude them from the picker.
+  // Keep the selected child visible even if enrolled (edge case where state
+  // changes underneath the user mid-flow).
+  const unenrolledChildren = children.filter(
+    c => !c.enrolled || c.id === selected?.id
+  );
+
   return (
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>Select child <Text style={{ color: colors.pink }}>*</Text></Text>
@@ -129,10 +137,14 @@ function ChildPicker({ children, selected, onSelect }: ChildPickerProps) {
       </TouchableOpacity>
       {open && (
         <View style={styles.pickerDropdown}>
-          {children.length === 0 ? (
-            <Text style={[type.small, { color: colors.muted, padding: space.md }]}>No children on your account yet.</Text>
+          {unenrolledChildren.length === 0 ? (
+            <Text style={[type.small, { color: colors.muted, padding: space.md }]}>
+              {children.length === 0
+                ? 'No children on your account yet.'
+                : 'All your children are already enrolled.'}
+            </Text>
           ) : (
-            children.map(c => (
+            unenrolledChildren.map(c => (
               <TouchableOpacity
                 key={c.id}
                 style={[styles.pickerOption, selected?.id === c.id && styles.pickerOptionSelected]}
@@ -474,6 +486,17 @@ export function EnrolmentPage({ navigation }: ParentMoreStackProps<'Enrolment'>)
                   </Text>
                   <TouchableOpacity onPress={() => navigation.navigate('MyChildren')}>
                     <Text style={[type.small, { color: colors.pink, fontWeight: '600' }]}>Add a child first →</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {!selectedChild && children.length > 0 && children.every(c => c.enrolled) && (
+                <View style={styles.noChildBox}>
+                  <Text style={[type.small, { color: colors.muted }]}>
+                    All your children are already enrolled.{' '}
+                  </Text>
+                  <TouchableOpacity onPress={() => navigation.navigate('MyChildren')}>
+                    <Text style={[type.small, { color: colors.pink, fontWeight: '600' }]}>Add another child →</Text>
                   </TouchableOpacity>
                 </View>
               )}

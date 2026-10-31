@@ -44,8 +44,10 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { TermCreditMeter } from '@/components/domain/TermCreditMeter';
 import { useBookings } from '../hooks/useBookings';
 import { useFamilyGating } from '../hooks/useFamilyGating';
+import { useTerms } from '../hooks/useTerms';
 import { dataClient } from '@/lib/data/client';
 import { qk } from '@/lib/data/queryKeys';
+import { getActiveTerm } from '@/lib/utils/termUtils';
 import type { ClassBooking } from '@/types/booking';
 import type { ParentTabParamList } from '@/app/navigation/types';
 
@@ -209,6 +211,8 @@ export function BookingsPage({ navigation }: Props) {
   /* ── queries ── */
   const { data: bookings = [], isLoading } = useBookings(familyId);
   const { data: gating                   } = useFamilyGating(familyId);
+  const { data: terms = [] } = useTerms(familyId);
+  const activeTerm = useMemo(() => getActiveTerm(terms), [terms]);
 
   /* ── cancel mutation (matches web exactly) ── */
   const { mutate: doCancel, isPending: cancelling } = useMutation({
@@ -263,12 +267,8 @@ export function BookingsPage({ navigation }: Props) {
         </View>
 
         {/* ── Term credit meter ── */}
-        {gating?.state === 'ACTIVE_TERM' && gating.end_date && (
-          <TermCreditMeter
-            creditsRemaining={gating.classes_remaining ?? 0}
-            creditsTotal={10}
-            endDate={gating.end_date}
-          />
+        {activeTerm && (
+          <TermCreditMeter term={activeTerm} />
         )}
 
         {/* ── Cancel-success banner (matches web unlock-banner style) ── */}

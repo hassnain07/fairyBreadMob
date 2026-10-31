@@ -315,8 +315,8 @@ export function AdminFamilyBookingPage({ navigation }: any) {
         </View>
 
         {/* Term credit meter */}
-        {activeTerm && gating?.classes_remaining != null && (
-          <TermCreditMeter creditsRemaining={gating.classes_remaining} creditsTotal={10} endDate={activeTerm.end_date} />
+        {activeTerm && (
+          <TermCreditMeter term={activeTerm} />
         )}
 
         {/* Booking mode toggle */}
@@ -410,8 +410,8 @@ export function AdminFamilyBookingPage({ navigation }: any) {
           </View>
         </View>
 
-        {activeTerm && gating?.classes_remaining != null && (
-          <TermCreditMeter creditsRemaining={gating.classes_remaining} creditsTotal={10} endDate={activeTerm.end_date} />
+        {activeTerm && (
+          <TermCreditMeter term={activeTerm} />
         )}
 
         {/* Action cards */}

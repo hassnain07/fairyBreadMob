@@ -18,8 +18,8 @@ export function ReportsPage() {
     enabled: !!familyId,
   });
 
-  const firstEnrolledChild = children.find(c => c.enrolled);
-  const activeChildId = selectedChildId || firstEnrolledChild?.id;
+  const firstChild = children[0];
+  const activeChildId = selectedChildId || firstChild?.id;
 
   const { data: reports = [], isLoading: reportsLoading, refetch } = useQuery({
     queryKey: ['reports', activeChildId],
@@ -34,7 +34,6 @@ export function ReportsPage() {
   };
 
   const latestReport = reports[0];
-  const enrolledChildren = children.filter(c => c.enrolled);
 
   const renderStars = (rating: number) => {
     return (
@@ -86,14 +85,14 @@ export function ReportsPage() {
       </View>
 
       {/* Child Switcher */}
-      {enrolledChildren.length > 1 && (
+      {children.length > 1 && (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           style={styles.childSwitcher}
           contentContainerStyle={styles.childSwitcherContent}
         >
-          {enrolledChildren.map(child => (
+          {children.map(child => (
             <TouchableOpacity
               key={child.id}
               style={[

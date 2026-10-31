@@ -1,9 +1,9 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
+import 'react-native-get-random-values'; // polyfills crypto.getRandomValues + randomUUID
 import {
   ActivityIndicator,
   FlatList,
   Image,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -58,11 +58,23 @@ function formatMoney(cents: number) {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
-function newId() {
-  return (
-    Math.random().toString(36).slice(2, 10) +
-    Date.now().toString(36)
-  );
+// Order IDs must be valid UUIDs — the place_portal_order RPC's p_id column
+// is type uuid, so short random strings get rejected with "invalid input
+// syntax for type uuid". crypto.randomUUID is polyfilled via
+// react-native-get-random-values (imported above).
+function newId(): string {
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+  } catch { /* fall through to manual v4 */ }
+
+  // Manual RFC 4122 v4 UUID from getRandomValues (polyfilled).
+  const b = (crypto.getRandomValues?.(new Uint8Array(16)) ?? new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40; // version 4
+  b[8] = (b[8] & 0x3f) | 0x80; // variant 10
+  const h = [...b].map((x) => x.toString(16).padStart(2, '0'));
+  return `${h[0]}${h[1]}${h[2]}${h[3]}-${h[4]}${h[5]}-${h[6]}${h[7]}-${h[8]}${h[9]}-${h[10]}${h[11]}${h[12]}${h[13]}${h[14]}${h[15]}`;
 }
 
 // ── Status badge ──────────────────────────────────────────────────────────────
@@ -228,11 +240,19 @@ function CheckoutSheet({
 
   const place = useMutation({
     mutationFn: async () => {
-      let receiptFile: File | null = null;
+      let receiptFile: any = null;
       if (paymentMethod === 'advance') {
         if (!proofFile) throw new Error('Please upload your payment receipt.');
-        const blob = await (await fetch(proofFile.uri)).blob();
-        receiptFile = new File([blob], proofFile.name, { type: blob.type || 'application/octet-stream' });
+        // Pass the picked file directly with its real MIME type — do NOT
+        // convert via fetch().blob()/new File(), which on React Native yields
+        // an opaque blob whose type is "application/octet-stream" and gets
+        // rejected by Supabase Storage ("mime type application/octet-stream
+        // is not supported").
+        receiptFile = {
+          uri:   proofFile.uri,
+          name:  proofFile.name,
+          type:  proofFile.mimeType || (proofFile.type === 'document' ? 'application/pdf' : 'image/jpeg'),
+        };
       }
       return dataClient.placeOrder({
         orderId:       orderIdRef.current,
@@ -288,8 +308,12 @@ function CheckoutSheet({
           ))}
         </View>
 
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ flexGrow: 1 }}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
 
             {/* ── Cart ─────────────────────────────────────────── */}
             {step === 'cart' && (
@@ -476,7 +500,6 @@ function CheckoutSheet({
 
             <View style={{ height: space.xl }} />
           </ScrollView>
-        </KeyboardAvoidingView>
       </Pressable>
     </Pressable>
   );
@@ -753,16 +776,19 @@ export function LearningShopPage() {
         animationType="slide"
         onRequestClose={() => setCheckoutOpen(false)}
       >
-        <CheckoutSheet
-          cart={cart}
-          familyId={familyId}
-          settings={settings}
-          family={family}
-          onUpdateQty={updateQty}
-          onRemove={removeFromCart}
-          onSuccess={handleOrderSuccess}
-          onClose={() => setCheckoutOpen(false)}
-        />
+        {checkoutOpen && (
+          <CheckoutSheet
+            key="checkout"
+            cart={cart}
+            familyId={familyId}
+            settings={settings}
+            family={family}
+            onUpdateQty={updateQty}
+            onRemove={removeFromCart}
+            onSuccess={handleOrderSuccess}
+            onClose={() => setCheckoutOpen(false)}
+          />
+        )}
       </Modal>
     </View>
   );
@@ -1020,7 +1046,7 @@ const styles = StyleSheet.create({
   // checkout sheet
   checkoutSheet: {
     paddingHorizontal: space.lg,
-    maxHeight:         '96%',
+    height:         '92%',   // explicit height so the inner ScrollView (flex:1) is bounded
   },
   checkoutHeader: {
     flexDirection:  'row',

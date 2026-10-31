@@ -195,12 +195,20 @@ export async function placeOrder(sb: AppSupabase, input: PlaceOrderInput): Promi
 
   if (input.paymentMethod === 'advance' && input.receipt) {
     const ctx = await rpc<{ family_id: string }>(sb, 'get_my_context');
-    const name = (input.receipt as any).name ?? 'receipt.jpg';
+    const receipt = input.receipt as any;
+    const name = receipt.name ?? 'receipt.jpg';
+    // Resolve a real MIME type — never fall back to octet-stream, which
+    // Supabase Storage rejects. Prefer an explicit mimeType, then the
+    // file extension, then image/jpeg as a last resort.
+    const mime =
+      receipt.mimeType ||
+      receipt.type ||
+      (name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
     path = `${ctx.family_id}/${input.orderId}/${safeName(name)}`;
     const up = await sb.storage.from('shop-receipts').upload(
       path,
-      { uri: (input.receipt as any).uri, name, type: (input.receipt as any).type ?? 'image/jpeg' } as any,
-      { contentType: (input.receipt as any).type ?? 'image/jpeg', upsert: false }
+      { uri: receipt.uri, name, type: mime } as any,
+      { contentType: mime, upsert: false }
     );
     if (up.error && !alreadyExists(up.error.message)) throw toAppError(up.error);
   }
